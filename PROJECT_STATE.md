@@ -1,18 +1,16 @@
 # Project state
 
-**Active phase:** 01 — Project audit and safe foundation (COMPLETE — exit gate passed)
-**Active task:** none — Phase 01 closed; next is Phase 02 (MISSION_02)
-**Overall status:** P01-T01 ✅ | P01-T02 ✅ | P01-T03 ✅ | P01-T04 ✅
-**Last verified commit:** a3bdaf7 (pushed to origin/main)
-**Last push:** verified 2026-11-06 (61c6016..a3bdaf7)
-**GitHub Pages URL:** not configured/verified
-**Latest QA evidence:** EVIDENCE/PHASE_01/ (inventory, reference playtest w/ screenshots, toolchain report)
+**Active phase:** 02 — Faithful Android reference reconstruction
+**Active task:** P02-T01 — Reference behavior capture (COMPLETE)
+**Overall status:** P01 ✅ | P02-T01 ✅ | P02-T02 ⏳ | P02-T03 ⏳ | P02-T04 ⏳
+**Last verified commit:** 872f485 (pushed)
+**Latest QA evidence:** EVIDENCE/PHASE_02/P02-T01/ (feature matrix, capture-report.md, screenshots)
 
 ## Current checkpoint
-- Completed tasks: P01-T01, P01-T02, P01-T03, P01-T04
+- Completed tasks: P01-T01..T04, P02-T01
 - In progress: none
 - Blocked: none
-- Next action: run `MISSIONS/MISSION_02.txt` (Phase 02 — Faithful Android reference reconstruction).
+- Next action: P02-T02 — Core scene and starfield parity (port source, recreate initial scene).
 
 ## Environment evidence
 Verified by execution on 2026-11-06 (P01-T03, Windows 10.0.26300):
