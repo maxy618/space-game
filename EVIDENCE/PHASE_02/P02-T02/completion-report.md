@@ -31,7 +31,7 @@ Repeated drag gesture (12-step diagonal drag, 40 ms steps) on our build vs fresh
 - Ours: POS `< -19702,-106944>` VEL 330; repeats VEL 343 / 342 / 329
 - Reference: POS `< -19711,-106938>` VEL 326; range 326–341
 
-Track is straight in both. Variance (VEL spread) is gesture-timing noise, not a physics regression: identical gesture timing produces identical results; three consecutive repeat runs clustered in 329–343, matching the reference's 326–341 band. An earlier anomalous reading (VEL 649/985/1327 with curved track) was traced to a stale dev-server module and a malformed drag sequence; after a clean reload and canonical gesture the parity holds (evidence: `ours-track-blanknav-0*.png` anomaly runs kept for the record, `ours-track-repeat-0*.png` canonical runs).
+Track is straight in both. Variance (VEL spread) is gesture-timing noise, not a physics regression: three consecutive fresh-page runs (forced via an `about:blank` navigation before each load, since re-navigating the same URL does not reload the page) clustered in 329–343, matching the reference's 326–341 band. Earlier anomalous readings (VEL 649/985/1327 with curved track) were traced to stale page state between runs — the ship kept accelerating from the previous run's velocity because the page never actually reloaded; after forcing a true fresh load and using the canonical gesture the parity holds (evidence: `ours-track-blanknav-0*.png` canonical runs, `ours-track-repeat-0*.png` anomalous stale-state runs kept for the record).
 
 ## Player QA performed (Playwright, Chromium desktop 1280x720)
 - Startup: scene renders, star + HUD correct, 0 console errors.
