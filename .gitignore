@@ -1,0 +1,16 @@
+# Local research reference checkout (never part of the game build)
+reference/
+
+# Playwright MCP transient artifacts
+.playwright-mcp/
+
+# Node / build tooling
+node_modules/
+dist/
+.vite/
+coverage/
+*.local
+
+# OS noise
+Thumbs.db
+.DS_Store
