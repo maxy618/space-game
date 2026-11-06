@@ -1,8 +1,8 @@
 # Project state
 
 **Active phase:** 01 — Project audit and safe foundation
-**Active task:** P01-T01 — Repository inventory
-**Overall status:** NOT STARTED
+**Active task:** P01-T02 — Reference source and license audit (COMPLETE)
+**Overall status:** P01-T01 ✅ | P01-T02 ✅ | P01-T03 ⏳ | P01-T04 ⏳
 **Last verified commit:** none
 **Last push:** not verified
 **GitHub Pages URL:** not configured/verified
