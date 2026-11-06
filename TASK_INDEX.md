@@ -15,7 +15,7 @@ Statuses: `PENDING`, `IN_PROGRESS`, `BLOCKED`, `VERIFIED`. Update at each checkp
 - [x] `P02-T01` — Reference behavior capture — `TASKS/PHASE_02/P02-T01_reference-behavior-capture.md` — VERIFIED
 - [x] `P02-T02` — Core scene and starfield parity — `TASKS/PHASE_02/P02-T02_core-scene-and-starfield-parity.md` — VERIFIED
 - [x] `P02-T03` — Ship and interaction parity — `TASKS/PHASE_02/P02-T03_ship-and-interaction-parity.md` — VERIFIED
-- [ ] `P02-T04` — End-to-end parity playtest — `TASKS/PHASE_02/P02-T04_end-to-end-parity-playtest.md` — PENDING
+- [x] `P02-T04` - End-to-end parity playtest - `TASKS/PHASE_02/P02-T04_end-to-end-parity-playtest.md` - VERIFIED
 
 
 ## Phase 03 — Modularization and deterministic game core
