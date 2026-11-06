@@ -6,8 +6,8 @@ Statuses: `PENDING`, `IN_PROGRESS`, `BLOCKED`, `VERIFIED`. Update at each checkp
 **Phase status:** PENDING
 - [x] `P01-T01` — Repository inventory — `TASKS/PHASE_01/P01-T01_repository-inventory.md` — VERIFIED
 - [x] `P01-T02` — Reference source and license audit — `TASKS/PHASE_01/P01-T02_reference-source-and-license-audit.md` — VERIFIED
-- [ ] `P01-T03` — Toolchain verification — `TASKS/PHASE_01/P01-T03_toolchain-verification.md` — PENDING
-- [ ] `P01-T04` — Project state and first checkpoint — `TASKS/PHASE_01/P01-T04_project-state-and-first-checkpoint.md` — PENDING
+- [x] `P01-T03` — Toolchain verification — `TASKS/PHASE_01/P01-T03_toolchain-verification.md` — VERIFIED
+- [x] `P01-T04` — Project state and first checkpoint — `TASKS/PHASE_01/P01-T04_project-state-and-first-checkpoint.md` — VERIFIED
 
 
 ## Phase 02 — Faithful Android reference reconstruction
