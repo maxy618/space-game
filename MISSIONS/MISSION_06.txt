@@ -1,0 +1,11 @@
+MISSION 06 — Art direction and layered rendering architecture
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 06 only: read PHASES/PHASE_06_art-render-architecture.md and every task under TASKS/PHASE_06/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Define a distinctive layered 2D visual identity and a renderer capable of rich depth without generic glossy 3D.
+
+RESULT: Art bible, render graph, material/LOD contracts, original icon grammar and reviewed visual prototype.
+
+DONE ONLY WHEN: Representative star, ship, planet, nebula, surface and UI look authored at actual game scale and close crop; layer costs and purposes are documented.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

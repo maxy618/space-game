@@ -1,0 +1,11 @@
+MISSION 17 — Weather, hazards and screen-reactive effects
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 17 only: read PHASES/PHASE_17_weather-filters.md and every task under TASKS/PHASE_17/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Create coherent weather that changes visuals, sound, flight, visibility, landing and screen distortion.
+
+RESULT: Weather fronts and distinct effects for storms, dust, snow, fog, lightning, ash, heat and oceans.
+
+DONE ONLY WHEN: Weather is spatially consistent and changes gameplay; filters blend in/out cleanly and never obscure critical controls.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

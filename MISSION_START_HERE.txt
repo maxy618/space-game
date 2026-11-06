@@ -1,0 +1,15 @@
+SPACE GAME — MISSION START
+
+Read AGENTS.md, PROJECT_STATE.md, TASK_INDEX.md and ROADMAP.md. Execute one phase at a time; first run MISSIONS/MISSION_01.txt. Read the matching PHASES brief and every TASKS file before implementation.
+
+MANDATORY PLAYTEST: launch the actual game and actively PLAY relevant features with Playwright inputs (keyboard/mouse/touch). Fly and steer, use controls, navigate, enter atmosphere while steering, continue the same trajectory, land, drive the rover, scan organisms, earn/spend currency, buy ships, equip modules. Inspect full-size and close-up screenshots, check console/network errors, fix and replay. Screenshots alone never prove gameplay. Label browser/touch-emulation/emulator/physical-device evidence honestly.
+
+VISUAL TARGET: memorable layered authored 2D; macro silhouettes, regional shapes, material detail, fine detail, parallax/animation, optics and event-driven screen distortion. Not generic glossy 3D. Research ray tracing versus ray marching/screen-space approximations honestly. Filters are contextual, not permanently stacked.
+
+ENTRY CONTINUITY: preserve same ship, planet region, mapped position, heading, velocity/momentum and player input through atmospheric entry. No teleport, generic spawn or black-fade shortcut.
+
+PROGRESSION: planetary discoveries earn currency; currency unlocks different ships and modules. Every supported upgrade is a visible physical attachment that changes gameplay.
+
+GIT/DEPLOY: commit tested increments, push to intended remote when available, and verify Actions + live GitHub Pages with a Playwright smoke-play. Never force-push, commit secrets or claim an action that did not occur.
+
+DONE only after task/phase criteria, actual player test, evidence, tracker update and commit. Do not skip phases.

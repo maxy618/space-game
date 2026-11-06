@@ -1,0 +1,11 @@
+MISSION 20 — Planetary rover and surface vehicle
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 20 only: read PHASES/PHASE_20_rover.md and every task under TASKS/PHASE_20/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Let players deploy a ground vehicle and explore planetary terrain in a different way from flight.
+
+RESULT: Responsive rover, suspension/traction, distinct camera/controls and persistent ship-to-rover flow.
+
+DONE ONLY WHEN: Player deploys, drives across varied surfaces, scans, returns to ship and retains exact rover position.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

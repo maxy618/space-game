@@ -1,0 +1,11 @@
+MISSION 13 — Geology, terrain and enormous oceans
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 13 only: read PHASES/PHASE_13_terrain-oceans.md and every task under TASKS/PHASE_13/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Build continuous streamed side-view surfaces with striking geological forms and long-distance ocean exploration.
+
+RESULT: Terrain/shore/ocean representation with coherent material families, collision and seamless chunks.
+
+DONE ONLY WHEN: Player flies/drives across multiple landforms and huge water regions without seams, collision mismatch or obvious tile repetition.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

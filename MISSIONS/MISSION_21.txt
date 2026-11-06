@@ -1,0 +1,11 @@
+MISSION 21 — Exploration, scanning and currency economy
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 21 only: read PHASES/PHASE_21_exploration-economy.md and every task under TASKS/PHASE_21/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Give exploration purpose and persistent rewards; discoveries earn the currency used for ships and equipment.
+
+RESULT: A balanced first-discovery economy, scanner/journal, persistent rewards and anti-duplication rules.
+
+DONE ONLY WHEN: Player earns currency from new discoveries, reloads, revisits without duplicate rewards and buys a meaningful unlock.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

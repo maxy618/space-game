@@ -1,0 +1,3 @@
+# Source reuse and licensing
+
+The earlier research pack identified an Apache-2.0 LAndroid-Web revision; re-verify the exact revision and every relevant file before reuse. Read LICENSE/NOTICE and record URL, commit SHA, retrieval date, file provenance and modifications. Preserve all required copyright, license, attribution and NOTICE material; mark modified files. Check dependency, font, sound and art licenses separately — a code license does not automatically cover assets. If provenance/license is unclear, do not copy that file; independently reproduce the observed behavior and document the boundary.

@@ -1,0 +1,11 @@
+MISSION 27 — Full QA, release and GitHub Pages deployment
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 27 only: read PHASES/PHASE_27_release-deploy.md and every task under TASKS/PHASE_27/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Deliver a stable, beautiful, genuinely playable release with verified commits, pushes, automated CI and live GitHub Pages.
+
+RESULT: Release candidate, full player QA matrix, visual audit, GitHub Actions and live Pages evidence.
+
+DONE ONLY WHEN: Fresh clone builds/tests; critical journeys pass; Actions deploy is green; live Pages URL serves and can be actively played.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

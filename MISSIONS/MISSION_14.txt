@@ -1,0 +1,11 @@
+MISSION 14 — Seamless atmospheric entry and trajectory continuity
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 14 only: read PHASES/PHASE_14_atmospheric-entry.md and every task under TASKS/PHASE_14/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Create a cinematic space-to-atmosphere transition that preserves the same ship and manoeuvre.
+
+RESULT: Playable entry where ship, planet region, mapped position, heading, momentum and player control carry into local flight.
+
+DONE ONLY WHEN: Player can steer during entry, continue the same trajectory in atmosphere, abort/retry and later land; no teleport or black fade.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

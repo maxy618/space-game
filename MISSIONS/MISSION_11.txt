@@ -1,0 +1,11 @@
+MISSION 11 — Astronomy catalogue and rare encounters
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 11 only: read PHASES/PHASE_11_astronomy-catalogue.md and every task under TASKS/PHASE_11/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Add a scientifically honest range of astronomical classes and unusual encounters with clear gameplay identity.
+
+RESULT: Typed evidence-labeled catalogue and playable encounters integrated with seeded universe generation.
+
+DONE ONLY WHEN: All entries trace to sources; candidate/hypothetical/fictional labels are correct and encounters can be found/inspected in-game.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

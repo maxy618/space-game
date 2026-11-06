@@ -1,0 +1,11 @@
+MISSION 07 — Signature celestial visuals
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 07 only: read PHASES/PHASE_07_space-visuals.md and every task under TASKS/PHASE_07/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Create memorable layered visual families for stars, planets, rings, asteroids, nebulae and black holes.
+
+RESULT: A coherent in-game visual library with distinct silhouettes, materials, light, animation and distance/close LOD.
+
+DONE ONLY WHEN: Players can encounter and inspect each family in actual play; all have close-up and normal-size evidence.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

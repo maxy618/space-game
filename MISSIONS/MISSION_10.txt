@@ -1,0 +1,11 @@
+MISSION 10 — Star-system navigation and jumps
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 10 only: read PHASES/PHASE_10_system-navigation.md and every task under TASKS/PHASE_10/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Let players discover systems, choose destinations and travel through satisfying, readable transitions.
+
+RESULT: Functional system map, route validation, jump animation and arrival continuity.
+
+DONE ONLY WHEN: Repeated multi-system journeys arrive at correct systems, preserve player state and remain playable on touch.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

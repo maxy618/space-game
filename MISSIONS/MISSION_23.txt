@@ -1,0 +1,11 @@
+MISSION 23 — Visible modular ship equipment and upgrades
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 23 only: read PHASES/PHASE_23_ship-upgrades.md and every task under TASKS/PHASE_23/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Make upgrades real physical additions to the ship that visibly alter its structure and change gameplay.
+
+RESULT: Attachment anchors, original module art, compatibility rules, stat/ability effects, purchases and saved loadouts.
+
+DONE ONLY WHEN: Every supported upgrade is visibly attached and produces measurable behavior; removal reverts behavior and saves persist.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

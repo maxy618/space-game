@@ -1,0 +1,11 @@
+MISSION 15 — Atmospheric flight physics and handling
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 15 only: read PHASES/PHASE_15_planetary-flight.md and every task under TASKS/PHASE_15/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Make atmospheric flight a distinctive piloting mechanic with environment- and ship-dependent behavior.
+
+RESULT: Researched 2D flight model, flight modes, recovery and tuning matrix.
+
+DONE ONLY WHEN: Same manoeuvre responds meaningfully to different atmospheres and ship configurations; flight is controllable and recoverable.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

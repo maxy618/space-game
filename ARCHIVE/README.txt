@@ -1,0 +1,1 @@
+Historical briefs retained so earlier intent is not lost. They are not active execution instructions; AGENTS.md, ROADMAP.md, PHASES/, TASKS/ and MISSIONS/ supersede them. Old skills were deliberately not carried forward. Inspect and reuse validated research in the actual project repository; do not blindly rerun old single-shot plans.

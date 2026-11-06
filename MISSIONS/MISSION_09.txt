@@ -1,0 +1,11 @@
+MISSION 09 — Universe, galaxies and deterministic systems
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 09 only: read PHASES/PHASE_09_universe-generation.md and every task under TASKS/PHASE_09/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Build a persistent procedurally generated universe with stable identity and efficient streaming.
+
+RESULT: Hierarchical galaxy/sector/system/body generation, stable seeds/IDs and separate player-save data.
+
+DONE ONLY WHEN: Same seed/revisit produces the same world; chunk/order changes do not alter generated results; streaming stays bounded.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

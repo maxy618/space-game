@@ -1,0 +1,13 @@
+# Research report: [topic]
+- Question and scope:
+- Date/retrieval date:
+- Method/tools actually used:
+- Subagents: exact tracks used, or explicitly none.
+- Sources: title, author/org, URL, date, exact claim supported and limitations.
+- Findings: separate facts, inference, game abstractions and fiction.
+- Conflicts/uncertainty:
+- Candidate models and trade-offs:
+- Recommendation:
+- Implementation implications:
+- Validation plan/measurements:
+- Open questions:

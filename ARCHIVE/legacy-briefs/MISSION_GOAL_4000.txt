@@ -1,0 +1,11 @@
+MISSION: Continue and Build the Space Exploration Game
+
+Read `AGENTS.md`, `CONTINUATION_MISSION.md`, `MISSION_PROGRESS.md` if present, `INITIAL_TASK.md`, `FINAL_REPORT.md` if present, and all existing research/design reports. Preserve all existing work. Do not restart completed research or ask the user to repeat the vision.
+
+Follow `CONTINUATION_MISSION.md` as the detailed execution plan. First inspect the real repository and current state. Then research the missing planetary systems yourself. Use parallel subagents for independent research tracks if the environment supports them; otherwise work sequentially. Produce separate, source-backed reports on planetary flight physics, ship handling, atmospheric entry/camera transitions, climates/weather, biomes/geology/oceans, ecosystems/fauna, procedural generation, rendering, controls, and tests. Do not invent physics or formulas: investigate, compare, cite, distinguish science from game approximations, and make documented decisions.
+
+Then implement the expanded playable vertical slice: space flight, atmospheric approach/entry, close 2D side-view planetary flight with horizontal AND vertical movement, coherent procedural climates/biomes, meaningful weather, large terrain/ocean traversal, landing and takeoff, and at least two extensible ship configurations. Make it visually exceptional, not a placeholder demo. Use the existing stack and toolchain. Do not build unrelated enterprise systems.
+
+Actively PLAY the game, not just run it. Test complete gameplay loops with Playwright/available input, capture screenshots at multiple viewports, inspect full scenes and close-up crops, fix defects, and repeat. Use bespoke original icons and visuals; no emoji, Unicode symbols, Lucide, Font Awesome, Material Icons, generic icon packs, or AI-slop UI.
+
+Do not change global OpenCode/model/MCP configuration or install/remove MCP servers/plugins. Use configured tools only. Maintain `MISSION_PROGRESS.md`; before rate/context limits, save exact progress and next actions so a later session can resume without repeating work. Do not claim completion until the criteria in `CONTINUATION_MISSION.md` are met. Report actual tests and limitations truthfully.

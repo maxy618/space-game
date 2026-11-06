@@ -1,0 +1,11 @@
+MISSION 08 — Ray-marching, optics and contextual screen filters
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 08 only: read PHASES/PHASE_08_optics-postfx.md and every task under TASKS/PHASE_08/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Implement spectacular optical effects and many screen-layer effects without false hardware-RT claims or constant filter spam.
+
+RESULT: Measured post-processing graph with selective lensing, distortion, scattering/reflection approximations, contextual profiles and quality tiers.
+
+DONE ONLY WHEN: At least two signature effects trigger in gameplay; event profiles cleanly enter/exit; low-tier/reduced-motion modes work.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

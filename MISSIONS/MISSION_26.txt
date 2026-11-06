@@ -1,0 +1,11 @@
+MISSION 26 — Content expansion and long-session balance
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 26 only: read PHASES/PHASE_26_content-balance.md and every task under TASKS/PHASE_26/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Turn the implemented features into a coherent, replayable exploration game with meaningful variety and persistence.
+
+RESULT: Curated seed catalogue, balanced progression, reduced repetition and reliable long-session saves.
+
+DONE ONLY WHEN: Multiple distinct journeys are playable; progress survives reload; content systems reinforce one another rather than feel isolated.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

@@ -1,0 +1,11 @@
+MISSION 02 — Faithful Android reference reconstruction
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 02 only: read PHASES/PHASE_02_reference-rebuild.md and every task under TASKS/PHASE_02/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: First make a faithful, playable reconstruction of the selected Android reference. Do not invent the later dream-game features yet.
+
+RESULT: A playable full port of the complete legally reusable reference implementation, preserving its supported behavior and controls, split into responsibility-based modules from the start, plus a source-backed parity report. Do not make a shallow visual imitation or one monolithic clone file.
+
+DONE ONLY WHEN: The relevant reference source tree is mapped; all modules needed for the selected experience have been ported where the verified license permits; every omitted/rewritten part is explained; the modular recreation has been played through Playwright and major interactions work end-to-end. Screenshots alone do not pass.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

@@ -1,0 +1,11 @@
+MISSION 01 — Project audit and safe foundation
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 01 only: read PHASES/PHASE_01_project-audit.md and every task under TASKS/PHASE_01/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Inspect the actual repository, preserve all existing work, verify licensing and tooling, and establish a reliable workflow.
+
+RESULT: A reproducible baseline, source/license ledger, task tracker, risk/decision logs and safe first checkpoint.
+
+DONE ONLY WHEN: The existing project is inventoried and runnable or its exact blocker is documented; no user work was lost; source reuse is license-checked; baseline Git state is safe.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

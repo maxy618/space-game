@@ -1,0 +1,11 @@
+MISSION 24 — Animation, sound, interface and accessibility
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 24 only: read PHASES/PHASE_24_animation-ux.md and every task under TASKS/PHASE_24/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Give actions and worlds authored motion/audio feedback while keeping a clear minimal interface.
+
+RESULT: Reusable motion grammar, event-driven sound, bespoke HUD and persistent accessibility settings.
+
+DONE ONLY WHEN: Core interactions have coherent feedback; motion can be reduced; UI remains legible and uncluttered.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.

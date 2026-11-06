@@ -1,0 +1,11 @@
+MISSION 19 — Skillful landing and takeoff
+
+Read AGENTS.md, PROJECT_STATE.md and TASK_INDEX.md. Execute Phase 19 only: read PHASES/PHASE_19_landing-takeoff.md and every task under TASKS/PHASE_19/; complete tasks in order. Do not skip dependencies or start the next phase.
+
+GOAL: Make landing a meaningful piloting interaction affected by terrain, weather, ship capability and approach quality.
+
+RESULT: A continuous approach/touchdown/takeoff loop connected to rover deployment and space exit.
+
+DONE ONLY WHEN: Player chooses a site, controls descent, lands at the exact approach location, deploys rover, relaunches and recovers from bad approaches.
+
+Launch the actual game and actively PLAY the relevant feature using Playwright inputs. Inspect normal-size/close-up visuals, check console/network errors, fix and replay the same route. Update trackers, save evidence, commit tested work and push to the intended remote when available. Verify live GitHub Pages at the release checkpoint if configured. Never claim an unperformed test, push, deployment or physical-device run.
