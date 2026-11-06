@@ -217,6 +217,16 @@ function Spaaaace(
         context.fillStyle = Colors.Eigengrau;
         context.fillRect(0, 0, canvasWidth, canvasHeight);
 
+        // High-DPI fix (user report: 2.5K phone showed the world ~3x too far).
+        // cameraZoom is now expressed in CSS pixels per meter, so the world
+        // keeps the same on-screen size on any display density. The canvas is
+        // devicePixelRatio times larger in device pixels, so the context must
+        // be scaled by zoom * dpr. Before this fix the zoom operated directly
+        // in device pixels: on a dpr~3 phone 1 meter was 1/3 of a CSS pixel
+        // and everything looked tiny even at rest.
+        const dpr = window.devicePixelRatio;
+        const deviceScale = cameraZoom * dpr;
+
         if (DYNAMIC_ZOOM) {
             const closest = u.closestPlanetForZoom();
             const distToNearestSurf = max(0, (u.ship.pos.distance(closest.pos)) - closest.radius * 1.2);
@@ -255,11 +265,12 @@ function Spaaaace(
             }
         }
 
-        // cameraZoom: metersToPixels
+        // cameraZoom: CSS pixels per meter (display-density independent)
+        // deviceScale: metersToPixels (device pixels, = cameraZoom * dpr)
         // visibleSpaceSizeMeters: meters
         // cameraOffset: meters ≈ vector pointing from ship to (0,0) (e.g. -pos)
-        const visibleSpaceSizeMeterWidth = canvasWidth / cameraZoom; // meters x meters
-        const visibleSpaceSizeMeterHeight = canvasHeight / cameraZoom; // meters x meters
+        const visibleSpaceSizeMeterWidth = canvasWidth / deviceScale; // meters x meters
+        const visibleSpaceSizeMeterHeight = canvasHeight / deviceScale; // meters x meters
         const visibleSpaceRectMeterLeft = -cameraOffsetX - visibleSpaceSizeMeterWidth * centerFracX;
         const visibleSpaceRectMeterTop = -cameraOffsetY - visibleSpaceSizeMeterHeight * centerFracY;
         const visibleSpaceRectMeterRight = visibleSpaceRectMeterLeft + visibleSpaceSizeMeterWidth;
@@ -269,13 +280,13 @@ function Spaaaace(
 
         let gridStep = 1000;
         const dp32 = toLocalPx(32);
-        while (gridStep * cameraZoom < dp32) gridStep *= 10;
+        while (gridStep * deviceScale < dp32) gridStep *= 10;
 
         context.save();
-        context.scale(cameraZoom, cameraZoom);
+        context.scale(deviceScale, deviceScale);
         context.translate(
-            (-visibleSpaceRectMeterCenterX + canvasWidth * 0.5 / cameraZoom),
-            (-visibleSpaceRectMeterCenterY + canvasHeight * 0.5 / cameraZoom)
+            (-visibleSpaceRectMeterCenterX + canvasWidth * 0.5 / deviceScale),
+            (-visibleSpaceRectMeterCenterY + canvasHeight * 0.5 / deviceScale)
         );
         helper.x = visibleSpaceRectMeterLeft;
         helper.y = visibleSpaceRectMeterTop;
