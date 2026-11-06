@@ -28,3 +28,21 @@ Use `docs/templates/RISK_TEMPLATE.md`. Track science, source licensing, renderin
 - **Player impact:** None until Phase 25 (Android delivery).
 - **Mitigation:** Emulator and system images are installed; device testing is scheduled for Phase 25 and will launch the emulator then.
 - **Recheck trigger:** Phase 25 kickoff.
+
+## R-004 — Save migration gaps between releases (user mandate, Phase 03+)
+
+- **Category:** Updates / persistence
+- **Risk:** Player progress is lost or corrupted when the save schema changes between game versions.
+- **Evidence:** User mandate D-002; ROADMAP.md Phase 3 now requires a versioned save format with a migration contract.
+- **Player impact:** Progress loss would be a severe, trust-breaking defect.
+- **Mitigation:** Save format carries an explicit `version` field from the first persistent state; every schema change ships a migration function plus automated migration tests; Phase 25/27 verify old saves load correctly in release builds.
+- **Recheck trigger:** Every task that modifies the save schema.
+
+## R-005 — Graphics quality regression (user mandate, all phases)
+
+- **Category:** Visual quality
+- **Risk:** Lighting/postFX work is deferred to late phases, producing flat or incoherent visuals that later need expensive rework.
+- **Evidence:** User mandate D-002; AGENTS.md "Graphics and lighting — absolute quality priority".
+- **Player impact:** Memorable picture quality is a core success criterion of the project.
+- **Mitigation:** Every graphics-touching task includes lighting/material work in its Definition of Done; ROADMAP phases 6–8, 13, 16–18, 24–25 embed lighting/postFX requirements; quality tiers keep PC and Android performance in budget.
+- **Recheck trigger:** Each phase exit gate; visual audits at normal size and close-up crops.

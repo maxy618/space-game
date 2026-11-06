@@ -22,7 +22,7 @@ First make a faithful, playable reconstruction of the selected Android reference
 
 Refactor the playable baseline into clear modules without changing the behavior.
 
-**Expected result:** Small coherent modules, stable IDs/seeds, simulation/render/input/save boundaries and regression coverage.
+**Expected result:** Small coherent modules, stable IDs/seeds, simulation/render/input/save boundaries and regression coverage. Save data is versioned with a documented migration contract from the first persistent state, so future releases migrate old saves automatically.
 
 **Exit gate:** Reference routes still pass; the game remains runnable; new content can be added without rewriting the game loop.
 
@@ -44,9 +44,9 @@ Make camera movement communicate scale and speed without disorienting the player
 
 ## 06. Art direction and layered rendering architecture
 
-Define a distinctive layered 2D visual identity and a renderer capable of rich depth without generic glossy 3D.
+Define a distinctive layered 2D visual identity and a renderer capable of rich depth without generic glossy 3D. Lighting is a first-class pillar: multi-level illumination, dynamic light sources, HDR-like color pipeline, bloom and emissive materials are designed here, not bolted on later.
 
-**Expected result:** Art bible, render graph, material/LOD contracts, original icon grammar and reviewed visual prototype.
+**Expected result:** Art bible, render graph, material/LOD contracts, original icon grammar and reviewed visual prototype. A documented lighting model (light sources, HDR/bloom pipeline, shadows and emissive layers where justified) with measurable quality tiers for desktop and Android.
 
 **Exit gate:** Representative star, ship, planet, nebula, surface and UI look authored at actual game scale and close crop; layer costs and purposes are documented.
 
@@ -54,7 +54,7 @@ Define a distinctive layered 2D visual identity and a renderer capable of rich d
 
 Create memorable layered visual families for stars, planets, rings, asteroids, nebulae and black holes.
 
-**Expected result:** A coherent in-game visual library with distinct silhouettes, materials, light, animation and distance/close LOD.
+**Expected result:** A coherent in-game visual library with distinct silhouettes, materials, light, animation and distance/close LOD. Every family defines its own material response: emissive parts, self-shadowing cues, light scattering into the surrounding medium, and post-processing needs (bloom/glare for stars, glow for nebulae).
 
 **Exit gate:** Players can encounter and inspect each family in actual play; all have close-up and normal-size evidence.
 
@@ -62,7 +62,7 @@ Create memorable layered visual families for stars, planets, rings, asteroids, n
 
 Implement spectacular optical effects and many screen-layer effects without false hardware-RT claims or constant filter spam.
 
-**Expected result:** Measured post-processing graph with selective lensing, distortion, scattering/reflection approximations, contextual profiles and quality tiers.
+**Expected result:** Measured post-processing graph with selective lensing, distortion, scattering/reflection approximations, contextual profiles and quality tiers. Bloom, HDR-like tone mapping, glare, volumetric light cues and atmospheric perspective are tuned as part of this graph — never as a permanent stack — and each effect documents its desktop/Android cost and low-tier fallback.
 
 **Exit gate:** At least two signature effects trigger in gameplay; event profiles cleanly enter/exit; low-tier/reduced-motion modes work.
 
@@ -102,7 +102,7 @@ Generate coherent planets whose climate, geography and local environments arise 
 
 Build continuous streamed side-view surfaces with striking geological forms and long-distance ocean exploration.
 
-**Expected result:** Terrain/shore/ocean representation with coherent material families, collision and seamless chunks.
+**Expected result:** Terrain/shore/ocean representation with coherent material families, collision and seamless chunks. Surfaces and water read as lit materials: directional sun/shadow cues, specular and wet/foam responses on shorelines, atmospheric perspective over distances, and depth-dependent water scattering.
 
 **Exit gate:** Player flies/drives across multiple landforms and huge water regions without seams, collision mismatch or obvious tile repetition.
 
@@ -126,7 +126,7 @@ Make atmospheric flight a distinctive piloting mechanic with environment- and sh
 
 Make sky, haze, cloud, terrain and ocean scenes visually rich, layered and unmistakably different by world family.
 
-**Expected result:** A family-based local planetary renderer with distinctive atmospheric depth, lighting and material response.
+**Expected result:** A family-based local planetary renderer with distinctive atmospheric depth, lighting and material response. Sky/atmosphere profiles define light color and scattering, cloud shadow cues, terrain sun/shadow behavior, HDR sky gradient, and haze/atmospheric perspective by world family — scaled by quality tier.
 
 **Exit gate:** Several planet families are immediately distinguishable in actual flight and remain coherent during movement/zoom/weather.
 
@@ -134,7 +134,7 @@ Make sky, haze, cloud, terrain and ocean scenes visually rich, layered and unmis
 
 Create coherent weather that changes visuals, sound, flight, visibility, landing and screen distortion.
 
-**Expected result:** Weather fronts and distinct effects for storms, dust, snow, fog, lightning, ash, heat and oceans.
+**Expected result:** Weather fronts and distinct effects for storms, dust, snow, fog, lightning, ash, heat and oceans. Weather is rendered as lit media: dust/snow/fog scatter light, lightning flashes expose the scene briefly, heat shimmer refracts, and each effect has documented blend-in/out plus performance cost and fallback.
 
 **Exit gate:** Weather is spatially consistent and changes gameplay; filters blend in/out cleanly and never obscure critical controls.
 
@@ -142,7 +142,7 @@ Create coherent weather that changes visuals, sound, flight, visibility, landing
 
 Create beautiful, strange, unsettling and compelling procedural life with actual behaviors and ecological context.
 
-**Expected result:** Stable species catalogue, bespoke organism visuals, habitat logic, animation, observation and discovery.
+**Expected result:** Stable species catalogue, bespoke organism visuals, habitat logic, animation, observation and discovery. Creatures and plants are lit consistently with the world: contact shadows on ground flora, emissive organs where justified, subsurface/scattering cues for exotic tissue, and light interaction with skin/fur/wing materials.
 
 **Exit gate:** Players can encounter, observe, scan and revisit distinctive species; they react to the world/player rather than sit as decoration.
 
@@ -190,7 +190,7 @@ Make upgrades real physical additions to the ship that visibly alter its structu
 
 Give actions and worlds authored motion/audio feedback while keeping a clear minimal interface.
 
-**Expected result:** Reusable motion grammar, event-driven sound, bespoke HUD and persistent accessibility settings.
+**Expected result:** Reusable motion grammar, event-driven sound, bespoke HUD and persistent accessibility settings. UI and animation respect the lighting model: emissive HUD accents, energy-consistent highlight states, and light-reactive interface feedback where it aids readability without becoming noise.
 
 **Exit gate:** Core interactions have coherent feedback; motion can be reduced; UI remains legible and uncluttered.
 
@@ -198,7 +198,7 @@ Give actions and worlds authored motion/audio feedback while keeping a clear min
 
 Measure demanding scenes, implement quality tiers, and build/test the Android app on the actual available Windows toolchain.
 
-**Expected result:** Performance reports, LOD/fallbacks, safe GPU lifecycle, reproducible Capacitor/APK workflow and honest device matrix.
+**Expected result:** Performance reports, LOD/fallbacks, safe GPU lifecycle, reproducible Capacitor/APK workflow and honest device matrix. Quality tiers scale the full lighting/postFX stack on both PC and Android, and the release architecture is complete: versioned builds, automated Web (GitHub Pages) and APK publishing, GitHub Releases, an in-game update check and a save-version migration path so progress survives every upgrade.
 
 **Exit gate:** Representative scenes meet measured budgets or adapt gracefully; Android build/install succeeds when tooling/device are available.
 
@@ -214,6 +214,6 @@ Turn the implemented features into a coherent, replayable exploration game with 
 
 Deliver a stable, beautiful, genuinely playable release with verified commits, pushes, automated CI and live GitHub Pages.
 
-**Expected result:** Release candidate, full player QA matrix, visual audit, GitHub Actions and live Pages evidence.
+**Expected result:** Release candidate, full player QA matrix, visual audit, GitHub Actions and live Pages evidence. The release pipeline delivers the full update story: semantic versioning, automated Web build to GitHub Pages and APK build to GitHub Releases, in-game update checking, and verified migration of old save data so no player progress is lost between versions.
 
 **Exit gate:** Fresh clone builds/tests; critical journeys pass; Actions deploy is green; live Pages URL serves and can be actively played.
