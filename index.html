@@ -3,27 +3,39 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Space Exploration Game</title>
-  <link rel="icon" href="/favicon.svg" />
+  <title>Space Exploration Game — Android 15 Parity</title>
+  <link rel="shortcut icon" type="image/svg+xml" href="/favicon15.svg" />
   <style>
+    :root {
+      --color-Eigengrau: #16161D;
+      --color-Eigengrau2: #292936;
+      --color-Eigengrau3: #3C3C4C;
+      --color-Eigengrau4: #A7A7CA;
+      --color-Console: #B7B7FF;
+      --color-Autopilot: #4285F4;
+    }
+
     body {
       margin: 0;
       padding: 0;
       overflow: hidden;
-      background-color: #16161d;
-      color: #b7b7ff;
+      background-color: var(--color-Eigengrau);
+      color: var(--color-Console);
       font-family: 'Roboto Mono', monospace;
     }
+
     .fill {
       position: fixed;
       width: 100vw;
       height: 100vh;
     }
+
     .canvas {
       width: 100%;
       height: 100%;
       touch-action: none;
     }
+
     .top-text {
       width: 100%;
       margin: 8px;
@@ -33,32 +45,337 @@
       position: fixed;
       top: 0;
       left: 0;
-      color: #b7b7ff;
+      color: var(--color-Console);
     }
-    .bottom-text {
+
+    .container-text {
       width: 100%;
+      margin: 0;
+      pointer-events: none;
+      font-size: 11px;
+      font-family: 'Roboto Mono', monospace;
+      white-space: pre;
+    }
+
+    /* Player pause button (top-right). Custom SVG icon, no icon fonts. */
+    #pauseButton {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(22, 22, 29, 0.72);
+      border: 1px solid var(--color-Eigengrau3);
+      border-radius: 10px;
+      cursor: pointer;
+      z-index: 40;
+      transition: background 0.15s, border-color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #pauseButton:hover, #pauseButton:active {
+      background: rgba(60, 60, 76, 0.85);
+      border-color: var(--color-Eigengrau4);
+    }
+
+    #pauseButton svg {
+      display: block;
+    }
+
+    /* Full-screen pause overlay with a frosted-glass blur, darkening and a
+       subtle white pulse for atmosphere. Fades in smoothly (transition, not
+       display toggling) — the same fade logic will be used for every menu. */
+    #pauseMenu {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: rgba(10, 10, 16, 0.62);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      z-index: 50;
+      user-select: none;
+      -webkit-user-select: none;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.28s ease, visibility 0s linear 0.28s;
+      overflow: hidden;
+    }
+
+    #pauseMenu.pause-open {
+      opacity: 1;
+      visibility: visible;
+      transition: opacity 0.28s ease;
+    }
+
+    /* Atmosphere: soft white pulses spawned by JS at random places and random
+       times (asynchronous). They may sit partially off-screen on purpose. */
+    .pause-pulse {
+      position: absolute;
+      border-radius: 50%;
+      pointer-events: none;
+      --pulse-max: 1;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0) 66%);
+      animation: pausePulseFade 2.8s ease-in-out forwards;
+    }
+
+    @keyframes pausePulseFade {
+      0% { opacity: 0; transform: scale(0.7); }
+      45% { opacity: calc(var(--pulse-max) * 1); transform: scale(1.06); }
+      100% { opacity: 0; transform: scale(1.22); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .pause-pulse { display: none; }
+      #pauseMenu { transition: opacity 0.01s linear, visibility 0s; }
+    }
+
+    .pause-menu-title {
+      font-size: 22px;
+      letter-spacing: 8px;
+      color: var(--color-Eigengrau4);
+      margin: 0 0 18px 0;
+    }
+
+    .pause-menu-btn {
+      width: 240px;
+      padding: 12px;
+      text-align: center;
+      background: rgba(41, 41, 54, 0.85);
+      border: 1px solid var(--color-Eigengrau3);
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 2px;
+      font-size: 14px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .pause-menu-btn:hover {
+      background: rgba(60, 60, 76, 0.95);
+      border-color: var(--color-Eigengrau4);
+    }
+
+    #pauseContinue {
+      border-color: var(--color-Autopilot);
+    }
+
+    .top-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      /* Hug the telemetry text: the collision logic for the pause button
+         measures this box, so it must wrap tightly around the text. */
+      width: fit-content;
+      max-width: calc(100% - 70px);
       margin: 8px;
       pointer-events: none;
-      font-size: 12px;
-      font-family: 'Roboto Mono', monospace;
+    }
+
+    .bottom-container {
       position: fixed;
       bottom: 0;
       left: 0;
-      color: #b7b7ff;
-    }
-    .loading {
+      width: 100%;
       margin: 8px;
-      color: #b7b7ff;
+      pointer-events: none;
+    }
+
+    .top-right-container {
+      position: fixed;
+      top: 0;
+      right: 0;
+      margin: 8px;
+    }
+
+    .bottom-right-container {
+      position: fixed;
+      bottom: 0;
+      right: 0;
+      margin: 8px;
+      visibility: hidden;
+      opacity: 0;
+      transition: visibility 0s linear 0.2s, opacity 0.2s;
+    }
+
+    .bottom-right-container.controls-show {
+      visibility: visible;
+      opacity: 1;
+      transition: visibility 0s linear 0s, opacity 0s;
+    }
+
+    .autopilot-button {
+      padding: 8px;
+      color: var(--color-Console);
+      border: 1px solid var(--color-Eigengrau2);
+      background: var(--color-Eigengrau2);
+      border-radius: 4px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .autopilot-button.autopilot-button-selected {
+      background: var(--color-Autopilot);
+      color: white;
+    }
+
+    .autopilot {
+      color: var(--color-Autopilot);
+      white-space: pre-wrap;
+    }
+
+    .loading {
+      width: 100%;
+      height: 100%;
+      position: fixed;
+      top: 0;
+      left: 0;
+      background: var(--color-Eigengrau);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 16px;
+      color: var(--color-Console);
+    }
+
+    .loading[hidden] {
+      display: none;
+    }
+
+    select, input[type="checkbox"], button {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      color: var(--color-Console);
+      background: var(--color-Eigengrau2);
+      border: 1px solid var(--color-Eigengrau2);
+    }
+
+    label {
+      font-size: 12px;
+    }
+
+    #speedContainerMask {
+      background-color: rgba(0, 0, 0, 0.5);
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* class selectors must win over the #speedContainerMask base rule */
+    .speed-container-hide {
+      display: none !important;
+    }
+
+    .speed-container-show {
+      display: flex;
+    }
+
+    #speedContainer {
+      background: var(--color-Eigengrau);
+      border: 1px solid var(--color-Eigengrau2);
+      padding: 16px;
+      border-radius: 8px;
+    }
+
+    #speedContainerButton {
+      text-align: center;
+    }
+
+    #speedIntegral, #speedDecimal {
+      display: grid;
+      gap: 4px;
+    }
+
+    #speedIntegral { grid-template-columns: repeat(6, 1fr); }
+    #speedDecimal { grid-template-columns: repeat(6, 1fr); }
+
+    #speedIntegral button, #speedDecimal button {
+      font-size: 14px;
+      padding: 8px;
+      border-radius: 4px;
+      font-weight: bold;
     }
   </style>
 </head>
 <body>
-  <div id="app" class="fill">
-    <canvas id="canvasMain" class="canvas fill"></canvas>
-    <pre id="topText" class="top-text" hidden></pre>
-    <pre id="bottomText" class="bottom-text" hidden></pre>
-    <div id="loading" class="loading">Loading...</div>
+  <canvas id="canvasMain" class="canvas fill" hidden></canvas>
+
+  <div id="topContainer" class="top-container" hidden>
+    <div id="topText" class="container-text"></div>
+    <div id="autopilotText" class="container-text autopilot"></div>
   </div>
+
+  <div id="bottomContainer" class="bottom-container" hidden>
+    <div id="bottomText" class="container-text"></div>
+  </div>
+
+  <div id="rightContainer" class="bottom-right-container">
+    <select id="zoomSelect">
+      <option>Fixed</option>
+      <option>Dynamic</option>
+      <option>Manual</option>
+    </select>
+    <label>
+      <input type="checkbox" id="pauseCheck" />
+      Pause
+    </label>
+    <button id="speedButton">1x</button>
+    <button id="autoPilotButton" class="autopilot-button">A</button>
+  </div>
+
+  <div id="loading" class="loading">Loading...</div>
+
+  <!-- Player pause button: bespoke SVG pause bars, no icon fonts. -->
+  <button id="pauseButton" type="button" aria-label="Pause">
+    <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="2" width="3.6" height="12" rx="1.2" fill="#B7B7FF" />
+      <rect x="9.4" y="2" width="3.6" height="12" rx="1.2" fill="#B7B7FF" />
+    </svg>
+  </button>
+
+  <div id="pauseMenu" hidden>
+    <div class="pause-menu-title">PAUSED</div>
+    <button id="pauseContinue" class="pause-menu-btn" type="button">CONTINUE</button>
+    <button id="pauseSettings" class="pause-menu-btn" type="button">SETTINGS</button>
+    <button id="pauseExit" class="pause-menu-btn" type="button">EXIT</button>
+  </div>
+
+  <div id="speedContainerMask" class="speed-container-hide">
+    <div id="speedContainer">
+      <table>
+        <tr>
+          <td id="speedContainerButton">
+            <button id="butIntegral">1</button>
+            <button id="butDecimal">.00</button>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <div id="speedIntegral"></div>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <div id="speedDecimal"></div>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

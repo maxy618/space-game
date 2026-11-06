@@ -58,3 +58,16 @@ Use GitHub Actions for GitHub Pages. Configure the Vite `base` for the exact rep
 
 ## Completion
 A task is done only when its player-visible result exists, automated tests pass, relevant behavior has been actively played, evidence is saved, docs/state are updated and a meaningful Git commit exists. A phase is done only when all tasks and its exit gate pass. Release is done only after the live Pages build has been verified and played.
+
+## Work discipline: DONE MEANS DONE (user mandate, 2026-11-07)
+- Work on results, not endless self-verification. No byte-level/line-level comparison loops once the goal is met. Reasonable checks only. When mechanics work, controls are verified, visuals exist and no critical issues remain - finish the mission (tests, evidence, docs, commit, push).
+- Do not repeatedly re-read or re-verify files already inspected. Fix, verify once, move on. Make sensible technical decisions autonomously.
+
+## Gameplay vs debug policy (user mandate, 2026-11-07)
+- Simulation speed control, pause, and manual zoom (wheel/pinch) are DEVELOPER/DEBUG tools. Never expose them to players; gate them behind a debug flag (e.g. #debug=1).
+- Player-facing camera feature: velocity-based dynamic zoom - the camera smoothly zooms out as ship speed rises (expSmooth), so the player feels speed. This stays for players.
+
+## Player pause menu & seed policy (user mandate, 2026-11-07)
+- A future phase adds a player-facing PAUSE: a styled button in the top-right corner that stops the game and opens a menu (Continue, Settings with graphics options, etc.) - no seed or debug controls in it.
+- Seed selection is NOT a player feature: it stays debug-only (URL hash), like speed/pause/manual zoom.
+- The SimClock pause machinery (P02-T03) is the engine foundation for the future player pause menu.
