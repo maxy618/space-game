@@ -204,7 +204,12 @@ export function FlightStick(
                 isDown = true;
                 isDownTouch = (e as PointerEvent).pointerType === "touch";
                 e.preventDefault();
-                (e.target as Element).setPointerCapture((e as PointerEvent).pointerId);
+                try {
+                    (e.target as Element).setPointerCapture((e as PointerEvent).pointerId);
+                } catch {
+                    // Pointer capture can fail for inactive pointers (synthetic events in tests,
+                    // or real edge cases); the game logic must continue without capture.
+                }
             } else if (e.type === "dblclick") {
                 originX = targetX = (e as MouseEvent).clientX * window.devicePixelRatio;
                 originY = targetY = (e as MouseEvent).clientY * window.devicePixelRatio;
