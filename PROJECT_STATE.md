@@ -1,16 +1,16 @@
 # Project state
 
 **Active phase:** 02 — Faithful Android reference reconstruction
-**Active task:** P02-T01 — Reference behavior capture (COMPLETE)
-**Overall status:** P01 ✅ | P02-T01 ✅ | P02-T02 ⏳ | P02-T03 ⏳ | P02-T04 ⏳
-**Last verified commit:** 872f485 (pushed)
-**Latest QA evidence:** EVIDENCE/PHASE_02/P02-T01/ (feature matrix, capture-report.md, screenshots)
+**Active task:** P02-T03 — Ship and interaction parity (NEXT)
+**Overall status:** P01 ✅ | P02-T01 ✅ | P02-T02 ✅ | P02-T03 ⏳ | P02-T04 ⏳
+**Last verified commit:** (see git log — P02-T02 commit)
+**Latest QA evidence:** EVIDENCE/PHASE_02/P02-T02/ (completion-report.md, seed-matched comparisons, flight-stick repeats, desktop/phone)
 
 ## Current checkpoint
-- Completed tasks: P01-T01..T04, P02-T01
+- Completed tasks: P01-T01..T04, P02-T01, P02-T02
 - In progress: none
 - Blocked: none
-- Next action: P02-T02 — Core scene and starfield parity (port source, recreate initial scene).
+- Next action: P02-T03 — Ship and interaction parity.
 
 ## Environment evidence
 Verified by execution on 2026-11-06 (P01-T03, Windows 10.0.26300):
