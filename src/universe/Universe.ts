@@ -379,7 +379,7 @@ export class Universe extends Simulator {
      */
     spawnAsteroids(count: number) {
         for (let i = 0; i < count; i++) {
-            const radius = this.rngForInit.minmax(30, 220);
+            const radius = this.rngForInit.minmax(60, 500);
             const orbitRadius = lerp(
                 UniverseConst.PLANET_ORBIT_RANGE_MIN,
                 UniverseConst.PLANET_ORBIT_RANGE_MAX,
