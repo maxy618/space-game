@@ -532,6 +532,34 @@ boostButton.addEventListener("click", (e) => e.preventDefault());
 // sync every frame so the disabled state tracks the cruise cap
 setInterval(syncBoost, 200);
 
+// ===== Scanner & radar (user 2026-11-09) =====
+const scanButton = document.getElementById("scanButton") as HTMLButtonElement;
+scanButton.addEventListener("click", () => {
+    const revealed = activity.triggerScan();
+    scanButton.blur();
+    if (revealed > 0) console.log("SCAN: revealed " + revealed + " bod" + (revealed === 1 ? "y" : "ies"));
+});
+const radarButton = document.getElementById("radarButton") as HTMLButtonElement;
+let radarOpen = false;
+function setRadarOpen(open: boolean) {
+    radarOpen = open;
+    radarButton.classList.toggle("open", open);
+    activity.setRadarOpen(open);
+}
+radarButton.addEventListener("click", () => {
+    setRadarOpen(!radarOpen);
+    radarButton.blur();
+});
+// close the radar on backdrop tap (click outside the canvas)
+document.getElementById("radarOverlay")?.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).id === "radarOverlay") setRadarOpen(false);
+});
+// keyboard: Q scans, R toggles the radar
+inputLayer.setEdgeHandler("scan", () => scanButton.click());
+window.addEventListener("keydown", (e) => {
+    if (e.code === "KeyR" && !e.repeat) radarButton.click();
+});
+
 pauseContinue.addEventListener("click", function () {
     setPlayerPaused(false);
 });

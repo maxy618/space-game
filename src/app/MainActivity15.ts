@@ -46,6 +46,7 @@ import { InputActionLayer } from "../input/InputActions";
 import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
 import { timeToImpact, impactGatesPass, IMPACT_CLEAR_SECONDS, IMPACT_CRITICAL_SECONDS } from "../universe/CollisionPredict";
+import { SCAN_COOLDOWN } from "../universe/Scanner";
 import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, fisheyeTargetForSpeed, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M, decayKick, kickMetersForScreenPx } from "../camera/Camera";
 import { newRandom } from "../core/RandomKt";
 
@@ -95,6 +96,11 @@ let cachedMassString = "";
 
 let isBaklava = false;
 let isControlsShow = false;
+
+// Scanner/radar shared state (module scope — MainActivity15 and its
+// Spaaaace camera closure both read these).
+let scanPull = 1;   // smoothed extra zoom-out factor while the scan wave runs
+let radarOpen = false; // radar overlay state (mirrored in main.ts via setRadarOpen)
 
 const atan2 = Math.atan2;
 const PI = Math.PI;
@@ -620,7 +626,7 @@ function Spaaaace(
                 const t = clamp((speed - UniverseConst.CRAFT_SPEED_LIMIT) / (UniverseConst.CRAFT_SPEED_LIMIT_BOOST - UniverseConst.CRAFT_SPEED_LIMIT), 0, 1);
                 factor = SPEED_ZOOM_FAR + (SPEED_ZOOM_FAR_BOOST - SPEED_ZOOM_FAR) * t * t;
             }
-            const targetZoom = (camZoom / CAMERA_DISTANCE) / factor;
+            const targetZoom = (camZoom / CAMERA_DISTANCE) / factor / scanPull;
             // Clamp to a positive range: a zero/negative cameraZoom would hang the
             // gridStep while-loop below and freeze the whole page.
             cameraZoom = clamp(expSmooth(cameraZoom, targetZoom, u.dt, 2.5), MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
@@ -959,6 +965,128 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         }
     }
 
+    // ===== Scanner (user 2026-11-09, NMS-style) =====
+    // Trigger → wave visual + instant reveal of planets in range + a brief
+    // camera pull-out so the player sees the sweep "from above".
+    const scanButton = document.getElementById("scanButton");
+    const radarOverlay = document.getElementById("radarOverlay");
+    const radarCanvas = document.getElementById("radarCanvas") as HTMLCanvasElement | null;
+    function triggerPlayerScan(): number {
+        return universe.triggerScan();
+    }
+    function updateScanFx() {
+        const s = universe.scan;
+        // camera pull-out while the wave is visible (smooth in/out)
+        const wantPull = s.waveAge >= 0 ? 1.35 : 1;
+        scanPull = expSmooth(scanPull, wantPull, universe.dt, 2.2);
+        // button cooldown sweep
+        if (scanButton) {
+            const cd = s.cooldown;
+            if (cd > 0) {
+                (scanButton as HTMLButtonElement).disabled = true;
+                const frac = cd / SCAN_COOLDOWN;
+                scanButton.style.background =
+                    "conic-gradient(rgba(167,167,202,0.35) " + ((1 - frac) * 360) + "deg, rgba(22,22,29,0.72) 0deg)";
+            } else {
+                (scanButton as HTMLButtonElement).disabled = false;
+                scanButton.style.background = "";
+            }
+        }
+    }
+
+    /**
+     * Radar / system map (user 2026-11-09): schematic star-centered view.
+     * Discovered (scanned/explored) planets = colored glyph + name;
+     * unknown = faint hollow dot. Ship = arrow marker with velocity vector.
+     * Drawn per frame while open (the sim keeps running — it's an overlay).
+     */
+    function drawRadar() {
+        if (!radarOpen || !radarCanvas) return;
+        const ctx2 = radarCanvas.getContext("2d");
+        if (!ctx2) return;
+        const W = radarCanvas.width;
+        const H = radarCanvas.height;
+        const c = W / 2;
+        const star = universe.star;
+        // scale: system span + margin → radar radius
+        const maxOrbit = Math.max(
+            ...universe.planets.map(p => p.pos.distance(star.pos)),
+            UniverseConst.PLANET_ORBIT_RANGE_MIN * 1.2,
+        );
+        const scale = (W * 0.44) / maxOrbit;
+        ctx2.clearRect(0, 0, W, H);
+        ctx2.save();
+        ctx2.translate(c, c);
+        // orbit rings (hairline)
+        ctx2.strokeStyle = "rgba(60,60,76,0.9)";
+        ctx2.lineWidth = 1;
+        for (const p of universe.planets) {
+            const r = p.pos.distance(star.pos) * scale;
+            ctx2.beginPath();
+            ctx2.arc(0, 0, r, 0, PI * 2);
+            ctx2.stroke();
+        }
+        // star
+        ctx2.fillStyle = star.color;
+        ctx2.beginPath();
+        ctx2.arc(0, 0, Math.max(3, star.radius * scale * 1.6), 0, PI * 2);
+        ctx2.fill();
+        // planets
+        ctx2.font = "10px 'Roboto Mono', monospace";
+        for (const p of universe.planets) {
+            const px = (p.pos.x - star.pos.x) * scale;
+            const py = (p.pos.y - star.pos.y) * scale;
+            if (p.scanned || p.explored) {
+                ctx2.fillStyle = p.color;
+                ctx2.beginPath();
+                ctx2.arc(px, py, 4, 0, PI * 2);
+                ctx2.fill();
+                ctx2.fillStyle = "rgba(167,167,202,0.85)";
+                ctx2.fillText(p.name, px + 7, py + 3);
+            } else {
+                ctx2.strokeStyle = "rgba(122,122,158,0.55)";
+                ctx2.lineWidth = 1.2;
+                ctx2.beginPath();
+                ctx2.arc(px, py, 3.4, 0, PI * 2);
+                ctx2.stroke();
+                ctx2.fillStyle = "rgba(122,122,158,0.7)";
+                ctx2.fillText("?", px + 6, py + 3);
+            }
+        }
+        // asteroid fields: faint cluster dots (radar sees big rocks at close range)
+        ctx2.fillStyle = "rgba(122,122,158,0.4)";
+        for (const a of universe.asteroids) {
+            const dx = (a.pos.x - universe.ship.pos.x) * scale;
+            const dy = (a.pos.y - universe.ship.pos.y) * scale;
+            if (dx * dx + dy * dy < (W * 0.35) * (W * 0.35)) {
+                ctx2.fillRect(
+                    (a.pos.x - star.pos.x) * scale - 1,
+                    (a.pos.y - star.pos.y) * scale - 1, 2, 2);
+            }
+        }
+        // ship marker: arrow + velocity vector
+        const sx = (universe.ship.pos.x - star.pos.x) * scale;
+        const sy = (universe.ship.pos.y - star.pos.y) * scale;
+        ctx2.translate(sx, sy);
+        ctx2.rotate(universe.ship.angle);
+        ctx2.fillStyle = "#B7B7FF";
+        ctx2.beginPath();
+        ctx2.moveTo(7, 0);
+        ctx2.lineTo(-5, 4.4);
+        ctx2.lineTo(-5, -4.4);
+        ctx2.closePath();
+        ctx2.fill();
+        ctx2.rotate(-universe.ship.angle);
+        const vmag = universe.ship.velocity.mag() / 1000; // scale: 1000 m/s → 1 px per scale unit
+        ctx2.strokeStyle = "rgba(183,183,255,0.6)";
+        ctx2.lineWidth = 1.4;
+        ctx2.beginPath();
+        ctx2.moveTo(0, 0);
+        ctx2.lineTo(universe.ship.velocity.x / 6000 * 40, universe.ship.velocity.y / 6000 * 40);
+        ctx2.stroke();
+        ctx2.restore();
+    }
+
     // Collision warning (user 2026-11-08): Elite-style impact alert. Every
     // ~100 ms we solve the closed-form closest-approach against every body;
     // a warning requires BOTH the ship's nose and its trajectory (relative
@@ -1065,6 +1193,8 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             star: { x: universe.star.pos.x, y: universe.star.pos.y, radius: universe.star.radius },
             impact: universe.impactThreat ? { tti: universe.impactThreat.tti, level: universe.impactThreat.level } : null,
             liveSparks: universe.countLiveSparksPublic(),
+            scan: { cooldown: universe.scan.cooldown, waveAge: universe.scan.waveAge },
+            scannedCount: universe.planets.filter(p => p.scanned).length,
         };
     }
 
@@ -1097,9 +1227,16 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             flightStickDraw(context, helper);
             telemetry(millis);
             updateBoostGlow(millis);
+            updateScanFx();
+            drawRadar();
         },
         setControlsShow: (show: boolean) => {
             isControlsShow = show;
+        },
+        triggerScan: triggerPlayerScan,
+        setRadarOpen: (open: boolean) => {
+            radarOpen = open;
+            if (radarOverlay) radarOverlay.classList.toggle("open", open);
         }
     };
 }

@@ -109,6 +109,9 @@ export class Planet extends Body {
     flora = "";
     fauna = "";
     explored = false;
+    /** Scanner-revealed (user 2026-11-09): shown on radar without visiting.
+     * Saved in v2 (v1 migrates to false). */
+    scanned = false;
     // Visual identity seed (P07-T02): stable in [0,1), derived from the
     // system seed. Drives patch tinting — planets differ in structure, not
     // just hue. Deterministic across runs of the same universe seed.
@@ -589,7 +592,7 @@ export class Universe extends Simulator {
     serialize(): string {
         const ship = this.ship;
         return JSON.stringify({
-            v: 1,
+            v: 2,
             randomSeed: this.randomSeed.toString(),
             now: this.now,
             star: {
@@ -608,6 +611,7 @@ export class Universe extends Simulator {
                 color: p.color,
                 visualSeed: p.visualSeed,
                 explored: p.explored,
+                scanned: p.scanned,
                 atmosphere: p.atmosphere,
                 description: p.description,
                 flora: p.flora,
@@ -633,6 +637,9 @@ export class Universe extends Simulator {
      */
     static deserialize(namer: Namer, json: string): Universe {
         const data = JSON.parse(json);
+        // Save migration (user 2026-11-09): v1 → v2 adds planet.scanned
+        // (scanner reveals), defaulting to false. Nothing else changed yet.
+        const version = data.v ?? 1;
         const u = new Universe(namer, BigInt(data.randomSeed));
         u.now = data.now;
 
@@ -650,6 +657,7 @@ export class Universe extends Simulator {
             p.name = pd.name;
             p.visualSeed = pd.visualSeed ?? 0;
             p.explored = pd.explored;
+            p.scanned = version >= 2 ? (pd.scanned ?? false) : false;
             p.atmosphere = pd.atmosphere;
             p.description = pd.description;
             p.flora = pd.flora;

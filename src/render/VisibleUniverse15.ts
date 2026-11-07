@@ -39,6 +39,7 @@ import { Constraint, Container, Simulator } from "../core/Physics";
 import { chooseRandom } from "../core/Randomness";
 import { Asteroid, Landing, Planet, Spacecraft, Spark, SparkStyle, Star, StarClass, StarClasses, Track, UniverseConst } from "../universe/Universe";
 import { starHeatStep, STAR_CORONA_FACTOR } from "../universe/StarHeat";
+import { createScanState, triggerScan, stepScan, scanWaveRadius, SCAN_WAVE_SECONDS, SCAN_RADIUS, type ScannableBody } from "../universe/Scanner";
 import { Landing15, Spacecraft15 } from "../universe/Universe15";
 import { Vec2, Vec2_angle, Vec2_copy, Vec2_makeWithAngleMag } from "../core/Vec2";
 import { clamp } from "../core/Maths";
@@ -92,6 +93,39 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         }
         return blobs;
     })();
+
+    /**
+     * Scanner reveal wave (user 2026-11-09): two expanding rings — fast
+     * leading edge + soft trailing glow. VISUAL radius is capped below the
+     * reveal radius so the sweep stays readable on screen (the reveal
+     * itself covers the full SCAN_RADIUS instantly).
+     */
+    drawScanWave(universe: VisibleUniverse15) {
+        const s = universe.scan;
+        if (s.waveAge < 0) return;
+        const WAVE = 4; // seconds — long enough to be seen, not just missed
+        const t = s.waveAge / WAVE;
+        if (t > 1) return;
+        const alpha = t < 0.6 ? 1 - t / 0.6 : (1 - t) / 0.4;
+        // visual sweep: 48 km (≈ one screen at mid zoom), ease-out
+        const VISUAL_R = 48_000;
+        const r = VISUAL_R * (1 - (1 - Math.min(1, t)) * (1 - Math.min(1, t)));
+        const context = this.context;
+        const ship = universe.ship.pos;
+        context.save();
+        context.strokeStyle = "rgba(167, 167, 202," + (0.85 * alpha) + ")";
+        context.lineWidth = 3.5 / this.zoom;
+        context.beginPath();
+        context.arc(ship.x, ship.y, Math.max(r, 1), 0, PI * 2);
+        context.stroke();
+        const r2 = Math.max(1, r * 0.86);
+        context.strokeStyle = "rgba(167, 167, 202," + (0.35 * alpha) + ")";
+        context.lineWidth = 12 / this.zoom;
+        context.beginPath();
+        context.arc(ship.x, ship.y, r2, 0, PI * 2);
+        context.stroke();
+        context.restore();
+    }
 
     /**
      * Impact-ring marker around the threatened body (user 2026-11-08).
@@ -150,6 +184,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         // runtime object is always VisibleUniverse15 (drawUniverse is
         // overridden there); the scope API keeps the base type
         this.drawImpactThreat(universe as VisibleUniverse15);
+        this.drawScanWave(universe as VisibleUniverse15);
         const ship = universe.ship as Spacecraft15;
         const autopilot = ship.autopilot;
         if (autopilot !== null && autopilot.enabled) {
@@ -720,6 +755,33 @@ export class VisibleUniverse15 extends VisibleUniverse {
     }
 
     /**
+     * Scanner state (user 2026-11-09): cooldown + expanding reveal wave.
+     * Lives on the universe so both sim step and renderer read one source.
+     */
+    scan = createScanState();
+    /** Bodies revealed by the LAST scan (ids) — for the discovery ping. */
+    scanRevealedIds: number[] = [];
+
+    /**
+     * Trigger the scanner. Returns the number of newly revealed bodies
+     * (0 when on cooldown).
+     */
+    triggerScan(): number {
+        const started = triggerScan(this.scan);
+        if (!started) return 0;
+        const shipPos = this.ship.pos;
+        let revealed = 0;
+        for (const p of this.planets) {
+            if (p.scanned) continue;
+            if (p.pos.distance(shipPos) <= SCAN_RADIUS) {
+                p.scanned = true;
+                revealed++;
+            }
+        }
+        return revealed;
+    }
+
+    /**
      * Stellar hazard (user 2026-11-08): advance the ship's heat against the
      * system star. Danger zones scale with the star radius (StarHeat.ts);
      * destruction at critical heating or inside the inner boundary.
@@ -916,6 +978,7 @@ export class VisibleUniverse15 extends VisibleUniverse {
         // Stellar hazard (user 2026-11-08): corona heating, destruction and
         // respawn run before any collision logic each step.
         this.updateStarHazard(dt);
+        stepScan(this.scan, dt);
 
         if (this.ship.landing === null) {
             const planet = this.closestPlanet();
