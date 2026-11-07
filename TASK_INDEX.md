@@ -36,19 +36,19 @@ Statuses: `PENDING`, `IN_PROGRESS`, `BLOCKED`, `VERIFIED`. Update at each checkp
 
 ## Phase 05 — Space camera, scale and navigation feel
 **Phase status:** PENDING
-- [x] `P05-T11` — Coordinate spaces — `TASKS/PHASE_05/P05-T01_coordinate-spaces.md` — PENDING
-- [x] `P05-T12` — Follow, zoom and framing — `TASKS/PHASE_05/P05-T02_follow-zoom-and-framing.md` — PENDING
-- [x] `P05-T13` — Parallax depth layers — `TASKS/PHASE_05/P05-T03_parallax-depth-layers.md` — PENDING
-- [x] `P05-T14` — Camera feedback — `TASKS/PHASE_05/P05-T04_camera-feedback.md` — PENDING
+- [x] `P05-T01` — Coordinate spaces — `TASKS/PHASE_05/P05-T01_coordinate-spaces.md` — VERIFIED
+- [x] `P05-T02` — Follow, zoom and framing — `TASKS/PHASE_05/P05-T02_follow-zoom-and-framing.md` — VERIFIED
+- [x] `P05-T03` — Parallax depth layers — `TASKS/PHASE_05/P05-T03_parallax-depth-layers.md` — VERIFIED
+- [x] `P05-T04` — Camera feedback — `TASKS/PHASE_05/P05-T04_camera-feedback.md` — VERIFIED
 
 
 ## Phase 06 — Art direction and layered rendering architecture
 **Phase status:** PENDING
-- [ ] `P06-T01` — Art bible and reference board — `TASKS/PHASE_06/P06-T01_art-bible-and-reference-board.md` — PENDING
-- [ ] `P06-T02` — Multi-layer render graph — `TASKS/PHASE_06/P06-T02_multi-layer-render-graph.md` — PENDING
-- [ ] `P06-T03` — LOD and material contracts — `TASKS/PHASE_06/P06-T03_lod-and-material-contracts.md` — PENDING
-- [ ] `P06-T04` — Bespoke interface art — `TASKS/PHASE_06/P06-T04_bespoke-interface-art.md` — PENDING
-- [ ] `P06-T05` — Visual prototype audit — `TASKS/PHASE_06/P06-T05_visual-prototype-audit.md` — PENDING
+- [x] `P06-T01` — Art bible and reference board — `TASKS/PHASE_06/P06-T01_art-bible-and-reference-board.md` — VERIFIED
+- [x] `P06-T02` — Multi-layer render graph — `TASKS/PHASE_06/P06-T02_multi-layer-render-graph.md` — VERIFIED
+- [x] `P06-T03` — LOD and material contracts — `TASKS/PHASE_06/P06-T03_lod-and-material-contracts.md` — VERIFIED
+- [x] `P06-T04` — Bespoke interface art — `TASKS/PHASE_06/P06-T04_bespoke-interface-art.md` — VERIFIED
+- [x] `P06-T05` — Visual prototype audit — `TASKS/PHASE_06/P06-T05_visual-prototype-audit.md` — VERIFIED
 
 
 ## Phase 07 — Signature celestial visuals
