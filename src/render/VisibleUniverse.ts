@@ -239,27 +239,20 @@ export class ZoomedDrawScope {
         context.save();
         context.translate(ship.pos.x, ship.pos.y);
         context.rotate(ship.angle);
-        // Minimum on-screen hull size (temp_mission §8): when fully zoomed
-        // out the 24 m hull is sub-pixel and the white outline alone would
-        // read as an excessively bright dot. The art is scaled UP to at
-        // least 10 CSS px; the physical hitbox (ship.radius) is untouched.
-        // Outline width is compensated so it stays ~1.3 CSS px on screen.
-        const zoom = this.zoom;
-        const hullDiameterM = 24; // visual hull extent (metres, art-only)
-        const minScreenPx = 10;
-        const visualScale = Math.max(1, minScreenPx / (hullDiameterM * zoom));
-        context.save();
-        context.scale(visualScale, visualScale);
+        //                drawPath(
+        //                    path = createStar(200f, 100f, 3),
+        //                    color = Color.White,
+        //                    style = Stroke(width = 2f / zoom)
+        //                )
         context.fillStyle = Colors.Eigengrau;
         context.fill(this.spaceshipPath); // fauxpaque
         context.strokeStyle = ship.transit ? Colors.Black : Colors.White;
-        context.lineWidth = 1.3 / (zoom * visualScale);
+        context.lineWidth = 2 / this.zoom;
         context.stroke(this.spaceshipPath);
-        context.restore();
         if (ship.thrust.x !== 0 || ship.thrust.y !== 0) {
             context.strokeStyle = "#FF8800";
             context.lineJoin = "round";
-            context.lineWidth = 2 / zoom;
+            context.lineWidth = 2 / this.zoom;
             context.stroke(this.thrustPath);
         }
         //                drawRect(
@@ -352,37 +345,44 @@ export class ZoomedDrawScope {
         const context = this.context;
         const helper = this.helper;
         if (SIMPLE_TRACK_DRAWING) {
-            // Solid translucent polyline (user bug: dotted, rarer at speed).
-            // Single path, no per-segment mayDrawLine breaks, filtered to the
-            // visible window (+pad) and capped at 3000 recent points — at
-            // high speed the tail is kilometres long and 10 000 segments
-            // with per-segment culling read as isolated dots/gaps.
-            context.strokeStyle = "rgba(0,255,0,0.6)";
-            context.lineWidth = 1.5 / this.zoom;
-            context.lineCap = "round";
-            context.lineJoin = "round";
-            const pad = 600; // metres beyond the visible rect still drawn
-            const left = helper.x - pad;
-            const right = helper.x + helper.width + pad;
-            const top = helper.y - pad;
-            const bottom = helper.y + helper.height + pad;
-            const total = track.positions.size();
-            const from = Math.max(0, total - 3000);
-            const pts: Array<{ x: number; y: number }> = [];
+            const lineWidth = 1 / this.zoom;
+            let prevX: number;
+            let prevY: number;
+            let drawing = false;
+            context.strokeStyle = Colors.Green;
+            context.lineWidth = lineWidth;
             track.positions.forEach((point, idx) => {
-                if (idx < from) return;
-                if (point.x >= left && point.x <= right && point.y >= top && point.y <= bottom) {
-                    pts.push(point);
+                if (idx !== 0) {
+                    if (helper.mayDrawLine(lineWidth, prevX, prevY, point.x, point.y)) {
+                        if (!drawing) {
+                            drawing = true;
+                            context.beginPath();
+                            context.moveTo(prevX, prevY);
+                        }
+                        context.lineTo(point.x, point.y);
+                    } else if (drawing) {
+                        drawing = false;
+                        context.stroke();
+                    }
                 }
+                prevX = point.x;
+                prevY = point.y;
             });
-            if (pts.length < 2) return;
-            context.beginPath();
-            context.moveTo(pts[0].x, pts[0].y);
-            for (let i = 1; i < pts.length; i++) context.lineTo(pts[i].x, pts[i].y);
-            context.stroke();
-            return;
-        }
-        {
+            if (drawing) {
+                drawing = false;
+                context.stroke();
+            }
+            //            if (positions.size < 2) return
+            //            drawPath(Path()
+            //                .apply {
+            //                    val p = positions[positions.size - 1]
+            //                    moveTo(p.x, p.y)
+            //                    positions.reversed().subList(1, positions.size).forEach { p ->
+            //                        lineTo(p.x, p.y)
+            //                    }
+            //                },
+            //                color = Color.Green, style = Stroke(1f/zoom))
+        } else {
             if (track.positions.size() < 2) return;
             let prev: Vec2 | null = null;
             let a = 0.5;

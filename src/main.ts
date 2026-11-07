@@ -25,6 +25,7 @@ import {
     getIsBaklava,
     MainActivity15,
     RandomSeedType,
+    setBoostEngaged,
     setCamZoom,
     setDynamicZoom,
     setFixedRandomSeed,
@@ -502,8 +503,7 @@ function syncBoost() {
     const holdEngaged = boostHeld && (performance.now() - pressStartedAt) > 300 && atCap;
     const engaged = holdEngaged || (boostToggleOn && atCap);
     boostButton.classList.toggle("engaged", engaged);
-    // Fisheye is speed-driven (temp_mission §5): it follows actual velocity
-    // in the renderer, not this button. Only the engine limit flips here.
+    setBoostEngaged(engaged);
     activity.setBoost(engaged);
 }
 function pressBoost() {

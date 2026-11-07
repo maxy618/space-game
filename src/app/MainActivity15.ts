@@ -47,7 +47,6 @@ import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
 import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M, decayKick, kickMetersForScreenPx } from "../camera/Camera";
 import { newRandom } from "../core/RandomKt";
-import { fisheyeTargetFromSpeed } from "../universe/Relativity";
 
 const TEST_UNIVERSE = false
 
@@ -85,9 +84,10 @@ let SPEED_ZOOM_ENABLED = true;
 // everywhere, so relative velocity-zoom behavior is unchanged.
 const CAMERA_DISTANCE = 1.5;
 
-// Fisheye edge distortion (temp_mission §5): driven by ACTUAL speed, not the
-// boost button. The target curve lives in Relativity.fisheyeTargetFromSpeed
-// (0 at rest, 1 at 6000, →1.12 bounded); Spaaaace smooths toward it per frame.
+// Fisheye warp-boost edge distortion strength (user 2026-11-08). 0 = off,
+// 1 = full. Driven by boost engagement, applied as radial screen warp per
+// frame in the render layer below (barrel toward edges, center stays sharp).
+let FISHEYE = 0;
 
 let playSpeed = 1;
 let camZoom = DEFAULT_CAMERA_ZOOM;
@@ -209,11 +209,6 @@ function Telemetry(universe: VisibleUniverse, autopilot: Autopilot15,
             bottomString += "ALT: " + distToClosest;
         }
         if (bottomString.length > 0) bottomString += "\n";
-        if (universe.isDestroyed) bottomString += "DESTROYED\n";
-        else if (ship.heat > 0.001 || ship.coronaDanger) {
-            bottomString += "HEAT: " + (ship.heat * 100).toFixed(0) + "%\n";
-            if (ship.coronaDanger) bottomString += "CORONA DANGER\n";
-        }
         bottomString += "THR: " + (ship.thrust.mag() * 100).toFixed(0) + "%\n";
         bottomString += "POS: " + ship.pos.str() + "\n";
         bottomString += "VEL: " + ship.velocity.mag().toFixed(0);
@@ -307,42 +302,24 @@ function Spaaaace(
         const canvasWidth = context.canvas.width;
         const canvasHeight = context.canvas.height;
 
-        // Speed-driven fisheye (temp_mission §5): target from ACTUAL speed,
-        // smoothed toward it. Disabling boost no longer kills the effect
-        // while the ship is still fast. reduced-motion users get none.
-        // Camera smoothing uses the REAL frame dt (not the sub-step dt):
-        // at low FPS the sub-step dt stayed ~24 ms while the frame was
-        // 200 ms, so the chase lagged half a screen (ship flew off).
-        const frameDt = Math.min(0.5, (u.realDt || 0) / 1000);
-        const fisheyeTarget = reducedMotion ? 0 : fisheyeTargetFromSpeed(u.ship.velocity.mag());
+        // Smooth fisheye strength toward its target; the world renders into
+        // an offscreen canvas while the warp is active, then gets tiled back
+        // with a radial barrel mapping (center sharp, edges warped).
         if (!reducedMotion) {
-            if (fisheyeTarget > fisheyeSmooth) fisheyeSmooth = Math.min(fisheyeTarget, fisheyeSmooth + frameDt * 2.2);
-            else fisheyeSmooth = Math.max(fisheyeTarget, fisheyeSmooth - frameDt * 3.0);
+            if (FISHEYE > fisheyeSmooth) fisheyeSmooth = Math.min(FISHEYE, fisheyeSmooth + u.dt * 2.2);
+            else fisheyeSmooth = Math.max(FISHEYE, fisheyeSmooth - u.dt * 3.0);
         } else {
             fisheyeSmooth = 0;
         }
         const warpActive = fisheyeSmooth > 0.01;
-        // Fisheye (user: edges bulge OUT, magnified — barrel):
-        // srcR = r·(1−k·t²) samples INWARD, so the outer ring would be lost.
-        // Fix without a giant overscan canvas: render the offscreen at the
-        // SAME pixel size but zoomed OUT by (1−k). Then world at screen edge
-        // sits at offscreen radius R·(1−k) — exactly what the edge tile
-        // samples — so the star/other bodies stay visible, centre stays sharp
-        // (t≈0 ⇒ srcR≈r), and the edge is magnified. No extra pixels: the
-        // old overscan (45% margin) cost ~5× the fill + starfield work and
-        // was the main FPS killer at >1200 m/s (warp turns on there).
-        const kWarp = 0.30 * fisheyeSmooth;
-        const warpScale = warpActive ? Math.max(0.5, 1 - kWarp) : 1;
-        const drawWidth = canvasWidth;
-        const drawHeight = canvasHeight;
         const drawCtx = warpActive ? offCtx : context;
         if (warpActive) {
-            if (offCanvas.width !== drawWidth) offCanvas.width = drawWidth;
-            if (offCanvas.height !== drawHeight) offCanvas.height = drawHeight;
+            if (offCanvas.width !== canvasWidth) offCanvas.width = canvasWidth;
+            if (offCanvas.height !== canvasHeight) offCanvas.height = canvasHeight;
         }
         const w2 = drawCtx;
         w2.fillStyle = Colors.Eigengrau;
-        w2.fillRect(0, 0, drawWidth, drawHeight);
+        w2.fillRect(0, 0, canvasWidth, canvasHeight);
 
         // Depth layers (P05-T03): distant starfield + foreground dust. Drawn
         // in device pixels (identity transform) BEFORE the world grid: far
@@ -353,8 +330,8 @@ function Spaaaace(
             w2.save();
             w2.setTransform(1, 0, 0, 1, 0, 0);
             const tile = 512;
-            const tilesX = Math.ceil(drawWidth / tile) + 1;
-            const tilesY = Math.ceil(drawHeight / tile) + 1;
+            const tilesX = Math.ceil(canvasWidth / tile) + 1;
+            const tilesY = Math.ceil(canvasHeight / tile) + 1;
             const drawLayer = (dots: StarDot[], pxPerM: number) => {
                 const ox = -parallaxOffsetPx(chaseX, dpr, pxPerM);
                 const oy = -parallaxOffsetPx(chaseY, dpr, pxPerM);
@@ -420,7 +397,7 @@ function Spaaaace(
             const closest = u.closestPlanetForZoom();
             const distToNearestSurf = max(0, (u.ship.pos.distance(closest.pos)) - closest.radius * 1.2);
             const targetZoom = clamp(500 / distToNearestSurf, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM) / CAMERA_DISTANCE;
-            cameraZoom = isBaklava ? expSmooth(cameraZoom, targetZoom, frameDt, 1.5) : targetZoom;
+            cameraZoom = isBaklava ? expSmooth(cameraZoom, targetZoom, u.dt, 1.5) : targetZoom;
         } else if (SPEED_ZOOM_ENABLED) {
             // Player-facing: camera view scales smoothly with ship speed.
             // Visible-space factor: stopped -> SPEED_ZOOM_NEAR (closer),
@@ -440,9 +417,9 @@ function Spaaaace(
             const targetZoom = (camZoom / CAMERA_DISTANCE) / factor;
             // Clamp to a positive range: a zero/negative cameraZoom would hang the
             // gridStep while-loop below and freeze the whole page.
-            cameraZoom = clamp(expSmooth(cameraZoom, targetZoom, frameDt, 2.5), MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
-        } else if (!TOUCH_CAMERA_ZOOM) cameraZoom = isBaklava ? expSmooth(cameraZoom, DEFAULT_CAMERA_ZOOM / CAMERA_DISTANCE, frameDt, 5) : DEFAULT_CAMERA_ZOOM / CAMERA_DISTANCE;
-        else cameraZoom = isBaklava ? expSmooth(cameraZoom, camZoom / CAMERA_DISTANCE, frameDt, 5) : camZoom / CAMERA_DISTANCE;
+            cameraZoom = clamp(expSmooth(cameraZoom, targetZoom, u.dt, 2.5), MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
+        } else if (!TOUCH_CAMERA_ZOOM) cameraZoom = isBaklava ? expSmooth(cameraZoom, DEFAULT_CAMERA_ZOOM / CAMERA_DISTANCE, u.dt, 5) : DEFAULT_CAMERA_ZOOM / CAMERA_DISTANCE;
+        else cameraZoom = isBaklava ? expSmooth(cameraZoom, camZoom / CAMERA_DISTANCE, u.dt, 5) : camZoom / CAMERA_DISTANCE;
         if (!TOUCH_CAMERA_PAN) {
             const follow = u.follow;
             if (follow !== null) {
@@ -455,27 +432,15 @@ function Spaaaace(
                     chaseX = follow.pos.x;
                     chaseY = follow.pos.y;
                     chaseInitialized = true;
-                } else if (frameDt > 0) {
+                } else if (u.dt > 0) {
                     const chased = chaseCamera(
                         { centerX: chaseX, centerY: chaseY, followRate: CAMERA_FOLLOW_RATE },
                         follow.pos.x,
                         follow.pos.y,
-                        frameDt,
+                        u.dt,
                     );
                     chaseX = chased.centerX;
                     chaseY = chased.centerY;
-                    // Hard lag clamp (ship must never fly off-screen): if the
-                    // exponential chase is still behind >35% of the visible
-                    // width (low FPS, big jumps), pull the centre to that cap.
-                    const visW = canvasWidth / (cameraZoom * window.devicePixelRatio);
-                    const maxLag = Math.max(50, visW * 0.35);
-                    const dx = follow.pos.x - chaseX;
-                    const dy = follow.pos.y - chaseY;
-                    const lag = Math.hypot(dx, dy);
-                    if (lag > maxLag) {
-                        chaseX = follow.pos.x - dx / lag * maxLag;
-                        chaseY = follow.pos.y - dy / lag * maxLag;
-                    }
                 }
 
                 // Kick bookkeeping (P05-T04): landing and discovery events
@@ -492,8 +457,8 @@ function Spaaaace(
                         kickY += kickMetersForScreenPx(2, cameraZoom);
                     }
                     prevDiscovery = discId;
-                    if (frameDt > 0) {
-                        const decayed = decayKick({ x: kickX, y: kickY }, frameDt, KICK_DECAY_RATE);
+                    if (u.dt > 0) {
+                        const decayed = decayKick({ x: kickX, y: kickY }, u.dt, KICK_DECAY_RATE);
                         kickX = decayed.x;
                         kickY = decayed.y;
                     }
@@ -523,23 +488,17 @@ function Spaaaace(
         const dp32 = toLocalPx(32);
         while (gridStep * deviceScale < dp32) gridStep *= 10;
 
-        const worldScale = deviceScale * warpScale;
         w2.save();
-        w2.scale(worldScale, worldScale);
+        w2.scale(deviceScale, deviceScale);
         w2.translate(
-            (-visibleSpaceRectMeterCenterX + drawWidth * 0.5 / worldScale),
-            (-visibleSpaceRectMeterCenterY + drawHeight * 0.5 / worldScale)
+            (-visibleSpaceRectMeterCenterX + canvasWidth * 0.5 / deviceScale),
+            (-visibleSpaceRectMeterCenterY + canvasHeight * 0.5 / deviceScale)
         );
-        // Cull window is the offscreen-visible rect (wider by 1/warpScale,
-        // because the offscreen is zoomed out) so edge bodies are drawn and
-        // survive the magnifying blit — no more disappearing star.
-        const offVisW = warpActive ? visibleSpaceSizeMeterWidth / warpScale : visibleSpaceSizeMeterWidth;
-        const offVisH = warpActive ? visibleSpaceSizeMeterHeight / warpScale : visibleSpaceSizeMeterHeight;
-        helper.x = visibleSpaceRectMeterLeft - (offVisW - visibleSpaceSizeMeterWidth) / 2;
-        helper.y = visibleSpaceRectMeterTop - (offVisH - visibleSpaceSizeMeterHeight) / 2;
-        helper.width = offVisW;
-        helper.height = offVisH;
-        helper.radius = sqrt(((helper.width) * (helper.width) + (helper.height) * (helper.height)) / 4);
+        helper.x = visibleSpaceRectMeterLeft;
+        helper.y = visibleSpaceRectMeterTop;
+        helper.width = visibleSpaceSizeMeterWidth;
+        helper.height = visibleSpaceSizeMeterHeight;
+        helper.radius = sqrt((visibleSpaceSizeMeterWidth * visibleSpaceSizeMeterWidth + visibleSpaceSizeMeterHeight * visibleSpaceSizeMeterHeight) / 4);
         // All coordinates are space coordinates now.
 
         // debug outer frame
@@ -550,23 +509,23 @@ function Spaaaace(
         //     style = Stroke(width = 10f / cameraZoom)
         // )
 
-        var x = floor(helper.x / gridStep) * gridStep;
+        var x = floor(visibleSpaceRectMeterLeft / gridStep) * gridStep;
         w2.strokeStyle = Colors.Eigengrau2;
-        while (x < helper.x + helper.width) {
+        while (x < visibleSpaceRectMeterRight) {
             w2.lineWidth = (((x % (gridStep * 10) === 0)) ? 3 : 1.5) / cameraZoom;
             w2.beginPath();
-            w2.moveTo(x, helper.y);
-            w2.lineTo(x, helper.y + helper.height);
+            w2.moveTo(x, visibleSpaceRectMeterTop);
+            w2.lineTo(x, visibleSpaceRectMeterBottom);
             w2.stroke();
             x += gridStep;
         }
 
-        var y = floor(helper.y / gridStep) * gridStep;
-        while (y < helper.y + helper.height) {
+        var y = floor(visibleSpaceRectMeterTop / gridStep) * gridStep;
+        while (y < visibleSpaceRectMeterBottom) {
             w2.lineWidth = (((y % (gridStep * 10) === 0)) ? 3 : 1.5) / cameraZoom;
             w2.beginPath();
-            w2.moveTo(helper.x, y);
-            w2.lineTo(helper.x + helper.width, y);
+            w2.moveTo(visibleSpaceRectMeterLeft, y);
+            w2.lineTo(visibleSpaceRectMeterRight, y);
             w2.stroke();
             y += gridStep;
         }
@@ -578,14 +537,13 @@ function Spaaaace(
 
         w2.restore();
 
-        // Fisheye blit: radial barrel mapping offscreen → screen, tile by
-        // tile. Edges bulge OUT (magnified, srcR<r); centre stays sharp.
+        // Fisheye blit: radial barrel mapping offscreen → screen, tile by tile.
         if (warpActive) {
             const cx = canvasWidth / 2;
             const cy = canvasHeight / 2;
             const R = Math.hypot(cx, cy);
-            const T = 80; // device-px tile (was 48: 3.4× fewer blits)
-            const k = kWarp;
+            const T = 48; // device-px tile
+            const k = 0.30 * fisheyeSmooth;
             for (let ty = 0; ty < canvasHeight; ty += T) {
                 for (let tx = 0; tx < canvasWidth; tx += T) {
                     const dx = tx + T / 2 - cx;
@@ -595,18 +553,9 @@ function Spaaaace(
                     const srcR = r * (1 - k * t * t);
                     const sx = cx + (dx / (r || 1)) * srcR;
                     const sy = cy + (dy / (r || 1)) * srcR;
-                    context.drawImage(offCanvas, clamp(sx - T / 2, 0, drawWidth - T), clamp(sy - T / 2, 0, drawHeight - T), T, T, tx, ty, T, T);
+                    context.drawImage(offCanvas, clamp(sx - T / 2, 0, canvasWidth - T), clamp(sy - T / 2, 0, canvasHeight - T), T, T, tx, ty, T, T);
                 }
             }
-        }
-        // Destruction flash (temp_mission §6): white overlay that decays in
-        // Universe.updateAll. Drawn unwarped on top of everything.
-        if (u.flash > 0.001) {
-            context.save();
-            context.setTransform(1, 0, 0, 1, 0, 0);
-            context.fillStyle = "rgba(255,255,255," + (u.flash * 0.9).toFixed(3) + ")";
-            context.fillRect(0, 0, canvasWidth, canvasHeight);
-            context.restore();
         }
     }
 }
@@ -640,11 +589,11 @@ export function setSpeedZoomEnabled(enabled: boolean) {
     SPEED_ZOOM_ENABLED = enabled;
 }
 
-/** Fisheye is speed-driven (temp_mission §5): kept for API compat, ignored.
- * The warp follows actual velocity in Spaaaace, not the boost button. */
-export function setBoostEngaged(_engaged: boolean) {
-    // Intentional no-op: speed decides the warp, the button only flips the
-    // engine limit (ship.boost via activity.setBoost in main.ts).
+/** Fisheye warp-boost strength 0..1 (0.02 handled smooth inside Spaaaace). */
+export function setBoostEngaged(engaged: boolean) {
+    // Gating: boost only engages at/above base cap; main.ts enforces the UI
+    // rule (button disabled below cap), this keeps the engine honest.
+    FISHEYE = engaged ? 1 : 0;
 }
 
 export function setIsBaklava(baklava: boolean) {    if (baklava != isBaklava) {

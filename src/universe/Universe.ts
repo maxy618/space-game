@@ -37,8 +37,6 @@ import { Body, Constraint, Container, Entity, Removable, Simulator } from "../co
 import { chooseRandom } from "../core/Randomness";
 import { Vec2, Vec2_angle, Vec2_copy, Vec2_makeWithAngleMag, Vec2_makeWithAngleMagAdd } from "../core/Vec2";
 import { LOG } from "../core/Debug";
-import { addImpulse, applyEngineThrust } from "./Relativity";
-import { DEFAULT_SHIP_SPEC, type ShipSpec } from "./ShipSpec";
 
 const PI = Math.PI;
 const abs = Math.abs;
@@ -241,16 +239,6 @@ export class Universe extends Simulator {
     asteroids: Array<Asteroid> = [];
     follow: Body | null = null;
     ringfence = new Container(UniverseConst.UNIVERSE_RANGE);
-    /** Initial ship spawn position (respawn point, temp_mission §6). */
-    private shipSpawnX = 0;
-    private shipSpawnY = 0;
-    private shipSpawnAngle = 0;
-    /** Seconds remaining in the destruction→respawn sequence (0 = alive). */
-    private respawnTimer = 0;
-    /** Screen-flash alpha 0..1, decays in updateAll (render reads it). */
-    flash = 0;
-    /** Total destructions this session (telemetry/tests). */
-    destructionCount = 0;
 
     constructor(namer: Namer, randomSeed: bigint) {
         super(randomSeed);
@@ -313,7 +301,6 @@ export class Universe extends Simulator {
         this.addConstraint(this.ringfence);
 
         this.follow = this.ship;
-        this.recordSpawn();
     }
 
     initRandom() {
@@ -377,186 +364,33 @@ export class Universe extends Simulator {
         this.addConstraint(this.ringfence);
 
         this.follow = this.ship;
-        this.recordSpawn();
-    }
-
-    /** Save the current ship state as its respawn point (temp_mission §6). */
-    private recordSpawn() {
-        this.shipSpawnX = this.ship.pos.x;
-        this.shipSpawnY = this.ship.pos.y;
-        this.shipSpawnAngle = this.ship.angle;
-    }
-
-    /** Heat-zone tunables, relative to the star radius (temp_mission §6). */
-    static CORONA_OUTER = 2.0; // heating starts inside 2×R
-    static INNER_DANGER = 1.0; // crossing inside 1×R destroys (the surface)
-    static MAX_HEAT_RATE = 0.25; // heat/sec at the surface (scale by spec)
-    static COOL_RATE = 0.1; // heat/sec outside the corona
-
-    /**
-     * Star-corona heating for one step (temp_mission §6). Heat accumulates
-     * inside 2×R quadratically toward the surface and cools outside.
-     * Returns true if the ship must be destroyed this step (heat ≥ max or
-     * inside the inner boundary). Pure function for testability.
-     */
-    static heatingStep(heat: number, distance: number, starRadius: number, scale: number, dt: number): { heat: number; danger: boolean; destroy: boolean } {
-        const coronaOuter = Universe.CORONA_OUTER * starRadius;
-        const inner = Universe.INNER_DANGER * starRadius;
-        if (!(distance < coronaOuter)) {
-            const cooled = Math.max(0, heat - Universe.COOL_RATE * scale * dt);
-            return { heat: cooled, danger: false, destroy: distance < inner };
-        }
-        const q = Math.min(1, Math.max(0, (coronaOuter - distance) / (coronaOuter - inner)));
-        const rate = Universe.MAX_HEAT_RATE * scale * q * q;
-        const h = heat + rate * dt;
-        return { heat: h, danger: true, destroy: h >= 1 || distance < inner };
-    }
-
-    /** Main relativistic gravity impulse on the ship (no ship-mass factor). */
-    private applyShipGravity(dt: number) {
-        const ship = this.ship;
-        const m0 = ship.spec.restMass;
-        // Effective G preserves the pre-fix numeric feel for the default ship:
-        // the old code folded the ship mass into G (G·M_ship = 0.01·10), so
-        // the true well strength was 0.1. Acceleration is now G_eff·M/d²,
-        // independent of the ship's own mass (future ships share the well).
-        const gEff = UniverseConst.GRAVITATION * UniverseConst.SPACECRAFT_MASS;
-        const bodies: Planet[] = [...this.planets, this.star];
-        for (const planet of bodies) {
-            if (!(planet.mass > 0)) continue;
-            const d = planet.pos.distance(ship.pos);
-            // Softened distance: gravity stays on even inside the star's
-            // surface (capped at the surface value) — never disabled
-            // prematurely, never singular at the centre.
-            const dEff = Math.max(d, planet.radius);
-            const accel = gEff * planet.mass / (dEff * dEff);
-            if (!(accel > 0)) continue;
-            const a = Vec2_angle(planet.pos, ship.pos);
-            const dp = m0 * accel * dt;
-            const n = addImpulse(ship.velocity.x, ship.velocity.y, m0, dp * Math.cos(a), dp * Math.sin(a));
-            ship.velocity.x = n.vx;
-            ship.velocity.y = n.vy;
-        }
-    }
-
-    /** Begin the destruction sequence: flash + debris, then respawn. */
-    private destroyShip() {
-        const ship = this.ship;
-        this.flash = 1;
-        this.respawnTimer = 1.5;
-        this.destructionCount++;
-        // Model-independent debris: generic sparks (works for any ship art).
-        for (let i = 0; i < 40; i++) {
-            const spark = new Spark(
-                this.rng.minmax(0.6, 1.8),
-                false,
-                0,
-                SparkStyle.DOT,
-                i % 3 === 0 ? "#FFCC66" : Colors.White,
-                this.rng.minmax(1, 2.5),
-            );
-            Vec2_makeWithAngleMag(spark.pos, this.rng.minmax(0, PI * 2), this.rng.minmax(0, ship.radius * 0.8)).addSelf(ship.pos);
-            Vec2_copy(spark.opos, spark.pos);
-            Vec2_makeWithAngleMag(spark.velocity, this.rng.minmax(0, PI * 2), this.rng.minmax(80, 520));
-            spark.velocity.x += ship.velocity.x * 0.3;
-            spark.velocity.y += ship.velocity.y * 0.3;
-            this.addEntity(spark);
-        }
-        // Freeze the husk in place; the wreck stays visible only via debris.
-        ship.velocity.x = 0;
-        ship.velocity.y = 0;
-        ship.thrust.x = 0;
-        ship.thrust.y = 0;
-    }
-
-    /** Respawn at the initial spawn point. Universe data is untouched. */
-    private respawnShip() {
-        const ship = this.ship;
-        if (ship.landing !== null) {
-            this.removeConstraint(ship.landing);
-            ship.landing = null;
-        }
-        ship.pos.x = this.shipSpawnX;
-        ship.pos.y = this.shipSpawnY;
-        ship.opos.x = this.shipSpawnX;
-        ship.opos.y = this.shipSpawnY;
-        ship.velocity.x = 0;
-        ship.velocity.y = 0;
-        ship.angle = this.shipSpawnAngle;
-        ship.thrust.x = 0;
-        ship.thrust.y = 0;
-        ship.heat = 0;
-        ship.boost = false;
-        ship.boostLatched = false;
-        ship.thrustMultiplier = 1;
-        ship.launchClock = 0;
-        // Track restarts from the respawn point (no jumps across the map).
-        ship.track.clear();
-        this.respawnTimer = 0;
-    }
-
-    /** True while the destruction→respawn sequence is running. */
-    get isDestroyed(): boolean {
-        return this.respawnTimer > 0;
-    }
-
-    /** Fraction of the respawn sequence left (1 → 0), for render fades. */
-    get respawnProgress(): number {
-        return this.respawnTimer > 0 ? this.respawnTimer / 1.5 : 0;
     }
 
     updateAll(dt: number, entities: Set<Entity>) {
-        // Destruction→respawn sequence (temp_mission §6). While destroyed the
-        // husk is frozen; the timer ticks in sim time and respawns cleanly.
-        // The universe (planets, asteroids, explored) is never touched.
-        if (this.respawnTimer > 0) {
-            this.respawnTimer -= dt;
-            this.flash = Math.max(0, this.flash - dt * 2.2);
-            if (this.respawnTimer <= 0) this.respawnShip();
-            // Still integrate planets/asteroids so the world lives on;
-            // the ship itself is frozen (no thrust/gravity) until respawn.
-            super.updateAll(dt, entities);
-            return;
-        }
-        this.flash = Math.max(0, this.flash - dt * 2.2);
-
         // check for passing in front of the sun
         this.ship.transit = false;
-        const starD = this.star.pos.distance(this.ship.pos);
-        this.ship.starDistance = starD;
-        if (starD < this.star.radius) this.ship.transit = true;
-
-        // Heating (temp_mission §6): corona exposure accumulates heat and
-        // cools outside. MECO launch grace still suppresses gravity (kept),
-        // but heating applies whenever the star is near — dangerous flybys
-        // are possible, instant death is not.
-        const heatRes = Universe.heatingStep(
-            this.ship.heat, starD, this.star.radius,
-            this.ship.spec.heatRateScale, dt,
-        );
-        this.ship.heat = heatRes.heat;
-        this.ship.coronaDanger = heatRes.danger;
-        if (heatRes.destroy) {
-            this.destroyShip();
-            super.updateAll(dt, entities);
-            return;
+        const fn = (planet: Planet) => {
+            const d = planet.pos.distance(this.ship.pos);
+            if (d < planet.radius) {
+                if (planet instanceof Star) this.ship.transit = true
+            } else if (
+                this.now > this.ship.launchClock + UniverseConst.LAUNCH_MECO
+            ) { // within MECO sec of launch, no gravity at all
+                // simulate gravity: $ f_g = G * m1 * m2 * 1/d^2 $
+                Vec2_makeWithAngleMagAdd(
+                    this.ship.velocity,
+                    Vec2_angle(planet.pos, this.ship.pos),
+                    dt * UniverseConst.GRAVITATION * (this.ship.mass * planet.mass) / (d * d)
+                );
+            }
         }
 
-        // Relativistic ship gravity (temp_mission §3): acceleration is
-        // G·M_source/d² (mass-independent — the old ship.mass factor was a
-        // dimensional error: it made gravity ∝ ship mass). The force acts
-        // through momentum (p = γ·m0·v), so slingshots can exceed 4000/6000
-        // freely (bounded only by C_GAME). Gravity stays on inside the
-        // star surface (softened at the surface value) — no premature
-        // cutoff; MECO grace within 2 s of launch is preserved.
-        if (this.now > this.ship.launchClock + UniverseConst.LAUNCH_MECO) {
-            this.applyShipGravity(dt);
-        }
+        this.planets.forEach(fn);
+        fn(this.star);
 
         // Asteroids feel the same gravity (user 2026-11-08): they drift and
         // orbit under the star/planet wells instead of flying in straight lines.
-        // Acceleration is G_eff·M/d² (mass-independent, as it should be).
-        const gEff = UniverseConst.GRAVITATION * UniverseConst.SPACECRAFT_MASS;
+        // Acceleration is G·M/d² (mass-independent, as it should be).
         for (const a of this.asteroids) {
             for (const p of [this.star, ...this.planets]) {
                 const d = p.pos.distance(a.pos);
@@ -564,7 +398,7 @@ export class Universe extends Simulator {
                     Vec2_makeWithAngleMagAdd(
                         a.velocity,
                         Vec2_angle(p.pos, a.pos),
-                        dt * gEff * p.mass / (d * d)
+                        dt * UniverseConst.GRAVITATION * p.mass / (d * d)
                     );
                 }
             }
@@ -747,12 +581,6 @@ export class Universe extends Simulator {
                 angle: ship.angle,
                 thrust: { x: ship.thrust.x, y: ship.thrust.y },
                 landingPlanetId: ship.landing ? ship.landing.planet.id : null,
-                heat: ship.heat,
-                boost: ship.boost,
-                thrustMultiplier: ship.thrustMultiplier,
-                spawn: { x: this.shipSpawnX, y: this.shipSpawnY, angle: this.shipSpawnAngle },
-                respawnTimer: this.respawnTimer,
-                destructionCount: this.destructionCount,
             },
             followId: this.follow ? this.follow.id : null,
             latestDiscoveryId: this.latestDiscovery ? this.latestDiscovery.id : null,
@@ -800,23 +628,10 @@ export class Universe extends Simulator {
         ship.angle = data.ship.angle;
         ship.thrust.x = data.ship.thrust.x;
         ship.thrust.y = data.ship.thrust.y;
-        // New ship fields (temp_mission §6); old v:1 saves lack them.
-        ship.heat = data.ship.heat ?? 0;
-        ship.boost = data.ship.boost ?? false;
-        ship.thrustMultiplier = data.ship.thrustMultiplier ?? 1;
         u.ship = ship;
         u.addEntity(ship);
         u.ringfence.add(ship);
         u.addConstraint(u.ringfence);
-        if (data.ship.spawn) {
-            (u as any).shipSpawnX = data.ship.spawn.x;
-            (u as any).shipSpawnY = data.ship.spawn.y;
-            (u as any).shipSpawnAngle = data.ship.spawn.angle;
-        } else {
-            u.recordSpawn();
-        }
-        if (data.ship.respawnTimer) (u as any).respawnTimer = data.ship.respawnTimer;
-        if (data.ship.destructionCount) (u as any).destructionCount = data.ship.destructionCount;
 
         if (data.ship.landingPlanetId !== null) {
             const planet = u.planets.find(p => p.id === data.ship.landingPlanetId);
@@ -913,11 +728,6 @@ export class Track {
         this.positions.addLast(new Vec2(x, y));
         this.angles.addLast(a);
     }
-    /** Drop the whole trail (respawn restart — no segment across the map). */
-    clear() {
-        this.positions.clear();
-        this.angles.clear();
-    }
 }
 
 export class Spacecraft extends Body {
@@ -926,25 +736,14 @@ export class Spacecraft extends Body {
 
     transit = false;
 
-    /** Boost burner engaged (user 2026-11-08): raises the ENGINE limit from
-     * 4000 to 6000 while held. Set by the boost button in main.ts. It is an
-     * engine limit, not a total-velocity cap (temp_mission §3): external
-     * forces may exceed it and releasing it never slows the ship. */
+    /** Boost burner engaged (user 2026-11-08): raises the speed cap from
+     * 4000 to 6000 while held. Set by the boost button in main.ts. */
     boost = false;
-    /** Legacy latch field (pre-relativistic drag). Kept for save compat; the
-     * brake-drag behaviour it used to trigger was removed (temp_mission §4):
-     * disabling boost no longer decelerates the ship. */
+    /** Cooldown latch (user 2026-11-08): after release the 6000 cap lingers
+     * until speed drops below 4500 — set only by an engaged burner. */
     boostLatched = false;
     /** Thrust multiplier (boost = 1.5). Applied in update(). */
     thrustMultiplier = 1;
-    /** Physical spec (rest mass, engine limits, heating) — see ShipSpec.ts. */
-    spec: ShipSpec = { ...DEFAULT_SHIP_SPEC };
-    /** Normalized star-heating 0..maxHeat (corona exposure). Per-ship. */
-    heat = 0;
-    /** Distance to star center at last heat update (meters, for UI). */
-    starDistance = Infinity;
-    /** Whether the ship is inside the star corona danger zone. */
-    coronaDanger = false;
 
     track = new Track();
 
@@ -952,7 +751,7 @@ export class Spacecraft extends Body {
 
     constructor() {
         super();
-        this.mass = this.spec.restMass;
+        this.mass = UniverseConst.SPACECRAFT_MASS;
         this.radius = 12;
     }
 
@@ -960,10 +759,14 @@ export class Spacecraft extends Body {
         // check for thrusters
         const thrustMag = this.thrust.mag();
         if (thrustMag > 0) {
-            let deltaV = this.spec.engineAccel * dt * this.thrustMultiplier;
+            let deltaV = UniverseConst.MAIN_ENGINE_ACCEL * dt * this.thrustMultiplier;
             if (SCALED_THRUST) deltaV *= clamp(thrustMag, 0, 1);
 
-            if (this.landing !== null) {
+            if (this.landing === null) {
+                // we are free in space, so we attempt to pivot toward the desired direction
+                // NOTE: no longer required thanks to FlightStick
+                // angle = thrust.angle()
+            } else {
                 if (this.launchClock === 0) this.launchClock = sim.now + 1; /* @@@ TODO extract */
 
                 if (sim.now > this.launchClock) {
@@ -976,22 +779,28 @@ export class Spacecraft extends Body {
                 }
             }
 
-            // Engine thrust, relativistically and limit-aware (temp_mission
-            // §3–§4): the 4000/6000 limits cap ENGINE-driven speed only.
-            // Gravity may exceed them; thrust above the limit cannot increase
-            // speed along travel but braking/steering still work. At ≤6000
-            // γ≈1.005, so ordinary feel is preserved.
-            if (deltaV > 0) {
-                const limit = this.boost ? this.spec.boostLimit : this.spec.engineLimit;
-                const n = applyEngineThrust(
-                    this.velocity.x, this.velocity.y, this.angle, deltaV,
-                    limit, this.spec.restMass,
-                );
-                this.velocity.x = n.vx;
-                this.velocity.y = n.vy;
-            }
+            // this is it. impart thrust to the ship.
+            // note that we always thrust in the forward direction
+            Vec2_makeWithAngleMagAdd(this.velocity, this.angle, deltaV);
         } else {
             if (this.launchClock !== 0) this.launchClock = 0;
+        }
+
+        // apply global speed limit (boost raises it 4000 → 6000; after
+        // release the cap lingers until cooled below 4500 — no instant snap)
+        if (this.boost) this.boostLatched = true;
+        else if (this.velocity.mag() < UniverseConst.CRAFT_SPEED_LIMIT_BOOST - 1500) this.boostLatched = false;
+        const speedLimit = (this.boost || this.boostLatched) ? UniverseConst.CRAFT_SPEED_LIMIT_BOOST : UniverseConst.CRAFT_SPEED_LIMIT;
+        if (this.velocity.mag() > speedLimit) {
+            // coasting down from boost: brake-drag 600 m/s² toward the cap
+            if (!this.boost && this.boostLatched) {
+                const over = this.velocity.mag() - speedLimit;
+                const decel = 1200 * dt; // brake drag outruns full engine thrust
+                if (over <= decel) Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
+                else Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), this.velocity.mag() - decel);
+            } else {
+                Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
+            }
         }
 
         super.update(sim, dt);

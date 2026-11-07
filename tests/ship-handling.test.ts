@@ -65,7 +65,7 @@ describe("P04-T02 thrust & cruise", () => {
         expect(v).toBeLessThan(UniverseConst.CRAFT_SPEED_LIMIT);
     });
 
-    it("hits the engine limit and holds it (starts just below the cap)", () => {
+    it("hits the 5000 cap and holds it (starts near the cap)", () => {
         // NOTE: each assert uses a fresh universe from the same seed, because
         // runSteps restarts its wall clock — continuity across calls would
         // produce a negative dt on the first step of the second call.
@@ -74,26 +74,11 @@ describe("P04-T02 thrust & cruise", () => {
             isolateFromGravity(u);
             // Start just below the cap: reaching it takes ~0.1 s, so the run
             // stays far from the ringfence (200 000 m) that would zero velocity.
-            // (Temp_mission §3–§4: the limit caps ENGINE speed only; starting
-            // above it no longer snaps back — see the above-limit test below.)
-            u.ship.velocity.x = 3900;
+            u.ship.velocity.x = 4900;
             u.ship.velocity.y = 0;
             runSteps(u, steps, 16, fullThrust);
             expect(u.ship.velocity.mag()).toBeCloseTo(UniverseConst.CRAFT_SPEED_LIMIT, 0);
         }
-    });
-
-    it("above the engine limit, forward thrust neither increases nor snaps speed", () => {
-        const u = makeUniverse(777n);
-        isolateFromGravity(u);
-        // Started above the limit (as if by a slingshot): the engine must not
-        // increase speed along travel, must not drag it back to the limit,
-        // and inertia must preserve it (temp_mission §4).
-        u.ship.velocity.x = 4900;
-        u.ship.velocity.y = 0;
-        runSteps(u, 120, 16, fullThrust);
-        expect(u.ship.velocity.mag()).toBeGreaterThan(4850);
-        expect(u.ship.velocity.mag()).toBeLessThan(4950);
     });
 
     it("half thrust accelerates at half rate", () => {
@@ -182,7 +167,7 @@ describe("P04-T02 frame-rate independence", () => {
         const b = makeUniverse(777n);
         for (const u of [a, b]) {
             isolateFromGravity(u);
-            u.ship.velocity.x = 3900;
+            u.ship.velocity.x = 4900;
             u.ship.velocity.y = 0;
         }
         runSteps(a, 60, 16, fullThrust); // ~0.96 s — cruises at the cap

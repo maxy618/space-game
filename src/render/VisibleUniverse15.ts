@@ -48,25 +48,6 @@ const PI = Math.PI;
 const abs = Math.abs;
 const sqrt = Math.sqrt;
 
-/** Heat glow halo (temp_mission §6): orange radial glow, strength = heat 0..1. */
-function shipHalo(context: CanvasRenderingContext2D, x: number, y: number, _zoom: number, heat: number) {
-    const h = Math.min(1, Math.max(0, heat));
-    const radiusM = 40 + h * 90; // world metres, grows with heat
-    const grad = context.createRadialGradient(x, y, 4, x, y, radiusM);
-    grad.addColorStop(0, "rgba(255,140,40," + (0.55 * h).toFixed(3) + ")");
-    grad.addColorStop(0.5, "rgba(255,80,20," + (0.28 * h).toFixed(3) + ")");
-    grad.addColorStop(1, "rgba(255,60,0,0)");
-    context.fillStyle = grad;
-    context.beginPath();
-    context.arc(x, y, radiusM, 0, PI * 2);
-    context.fill();
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-    const h = hex.replace("#", "");
-    return [parseInt(h.substring(0, 2), 16), parseInt(h.substring(2, 4), 16), parseInt(h.substring(4, 6), 16)];
-}
-
 export class ZoomedDrawScope15 extends ZoomedDrawScope {
     readonly spaceshipLegs = parseSvgPathData("\nM-7   -6.5\nl-3.5  0\nl-1   -2\nl 0    4\nl 1   -2\nZ\nM-7    6.5\nl-3.5  0\nl-1   -2\nl 0    4\nl 1   -2\nZ\n")
     readonly thrustPath = createPolygon(-3, 3, -5, 0);
@@ -118,19 +99,11 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             }
         });
         const ship = universe.ship as Spacecraft15;
-        // Heat shimmer shell (temp_mission §6): the hotter the ship, the
-        // stronger the orange glow. Gradual, reversible, model-independent
-        // (a halo around the ship position, no ship-specific geometry).
-        const heat = (ship as any).heat as number;
-        if (heat > 0.05 && !universe.isDestroyed) {
-            shipHalo(this.context, ship.pos.x, ship.pos.y, this.zoom, heat);
-        }
         const autopilot = ship.autopilot;
         if (autopilot !== null && autopilot.enabled) {
             this.drawAutopilot(autopilot);
         }
-        // Destroyed husk: hidden for the respawn sequence (temp_mission §6).
-        if (!universe.isDestroyed) this.drawSpacecraft(ship);
+        this.drawSpacecraft(ship);
     }
     /**
      * Asteroids (user 2026-11-08): irregular seeded polygon, crater shading,
@@ -195,12 +168,10 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             context.save();
             context.translate(blob.x, blob.y);
             context.rotate(blob.rot);
-            // Soft natural falloff (temp_mission §8): radial gradient (centre
-            // slightly more visible, edge fully transparent) over the same
-            // 12-vertex silhouette — no hard polygon edge. Palette kept, base
-            // alpha raised ~1.4× so the colours read, still restrained.
-            const steps = blob.rr.length;
+            context.fillStyle = blob.color;
+            context.globalAlpha = blob.alpha;
             context.beginPath();
+            const steps = blob.rr.length;
             for (let i = 0; i <= steps; i++) {
                 const a = (i / steps) * PI * 2;
                 const rr = blob.r * blob.rr[i % steps];
@@ -210,14 +181,6 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
                 else context.lineTo(px, py);
             }
             context.closePath();
-            // Soft edge via radial rgba gradient (centre visible, edge 0).
-            const rgb = hexToRgb(blob.color);
-            const aMax = Math.min(0.19, blob.alpha * 1.5);
-            const g2 = context.createRadialGradient(0, 0, blob.r * 0.05, 0, 0, blob.r * 1.05);
-            g2.addColorStop(0, "rgba(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + "," + aMax.toFixed(3) + ")");
-            g2.addColorStop(0.55, "rgba(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + "," + (aMax * 0.55).toFixed(3) + ")");
-            g2.addColorStop(1, "rgba(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + ",0)");
-            context.fillStyle = g2;
             context.fill();
             context.restore();
         }
@@ -282,28 +245,18 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         context.save();
         context.translate(ship.pos.x, ship.pos.y);
         context.rotate(ship.angle);
-        // Minimum on-screen hull size (temp_mission §8): same rule as the
-        // base renderer — art scales up to ≥10 CSS px when fully zoomed
-        // out, outline stays ~1.3 CSS px, hitbox untouched, exhaust stays
-        // at world scale (unscaled) so the flame never explodes.
-        const hullDiameterM = 24;
-        const minScreenPx = 10;
-        const visualScale = Math.max(1, minScreenPx / (hullDiameterM * this.zoom));
-        context.save();
-        context.scale(visualScale, visualScale);
-        // new in V: little landing legs (min-size scaled with the hull)
+        // new in V: little landing legs
         if (ship.landing !== null) {
             context.strokeStyle = "#CCCCCC";
-            context.lineWidth = 2 / (this.zoom * visualScale);
+            context.lineWidth = 2 / this.zoom;
             context.stroke(this.spaceshipLegs);
         }
         // draw the ship
         context.fillStyle = Colors.Eigengrau;
         context.fill(this.spaceshipPath); // fauxpaque
         context.strokeStyle = ship.transit ? Colors.Black : Colors.White;
-        context.lineWidth = 1.3 / (this.zoom * visualScale); // user 2026-11-08: 1.5x thinner hull outline
+        context.lineWidth = 1.3 / this.zoom; // user 2026-11-08: 1.5x thinner hull outline
         context.stroke(this.spaceshipPath);
-        context.restore();
         // Dynamic exhaust flame (user request 2026-11-07, refined "beautiful
         // and alive"): a multi-layer procedural flame — turbulent teardrop with
         // sin-notched edges, layered white→orange→red bands, 3 flickering
