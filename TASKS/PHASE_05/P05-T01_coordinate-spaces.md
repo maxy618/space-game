@@ -1,7 +1,7 @@
 # P05-T01 — Coordinate spaces
 
 **Phase:** 05 — Space camera, scale and navigation feel  
-**Status:** PENDING  
+**Status:** VERIFIED  
 **Depends on:** Prior tasks in this phase and prior phase gate.
 
 ## Objective
