@@ -416,9 +416,17 @@ function spawnPausePulseChain() {
 // text. Only the FIRST telemetry line can reach the top-right corner (the
 // rest of the block grows downward), so the button slides just below that
 // line when they would collide, with a proper margin. Otherwise it rests at
-// its normal position.
+// its normal position, cleared by the phone safe-area inset (P04-T03).
 const PAUSE_BUTTON_TOP_PX = 14;
 const COLLISION_MARGIN_PX = 8;
+
+/** Pixel height of the phone safe-area inset at the top (env() via :root var). */
+function safeAreaTopPx(): number {
+    const v = getComputedStyle(document.documentElement).getPropertyValue("--safe-top");
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : 0;
+}
+
 let lastPauseButtonTop = -1;
 function keepPauseButtonClear() {
     const topText = document.getElementById("topText");
@@ -435,7 +443,7 @@ function keepPauseButtonClear() {
         firstLine.left < buttonBox.right &&
         firstLineBottom + COLLISION_MARGIN_PX > buttonBox.top &&
         firstLine.top < buttonBox.bottom;
-    const top = overlaps ? (firstLineBottom + COLLISION_MARGIN_PX) : PAUSE_BUTTON_TOP_PX;
+    const top = overlaps ? (firstLineBottom + COLLISION_MARGIN_PX) : PAUSE_BUTTON_TOP_PX + safeAreaTopPx();
     // Only touch the style when the value actually changes: rewriting it every
     // frame makes the button permanently "unstable" for clicks and wastes layout.
     if (top !== lastPauseButtonTop) {

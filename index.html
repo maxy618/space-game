@@ -13,6 +13,11 @@
       --color-Eigengrau4: #A7A7CA;
       --color-Console: #B7B7FF;
       --color-Autopilot: #4285F4;
+      /* Phone safe areas (notch / cutout): UI must clear these zones. */
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-right: env(safe-area-inset-right, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-left: env(safe-area-inset-left, 0px);
     }
 
     body {
@@ -60,8 +65,8 @@
     /* Player pause button (top-right). Custom SVG icon, no icon fonts. */
     #pauseButton {
       position: fixed;
-      top: 14px;
-      right: 14px;
+      top: calc(14px + var(--safe-top));
+      right: calc(14px + var(--safe-right));
       width: 40px;
       height: 40px;
       padding: 0;
