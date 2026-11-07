@@ -325,7 +325,7 @@ export class Universe extends Simulator {
             this.planets.push(p);
             this.addEntity(p);
         }
-        this.spawnAsteroids(36);
+        this.spawnAsteroids(120);
         this.planets.sort((a, b) => a.pos.distance(this.star.pos) - b.pos.distance(this.star.pos));
         this.planets.forEach((planet, idx) => planet.name = (systemName + " " + (idx + 1)));
         this.addEntity(this.star);
@@ -398,7 +398,7 @@ export class Universe extends Simulator {
      */
     spawnAsteroids(count: number) {
         for (let i = 0; i < count; i++) {
-            const radius = this.rngForInit.minmax(25, 350);
+            const radius = this.rngForInit.minmax(80, 450);
             const orbitRadius = lerp(60_000, 110_000, this.rngForInit.float());
             const a = new Asteroid(radius);
             a.id = 2001 + i;
