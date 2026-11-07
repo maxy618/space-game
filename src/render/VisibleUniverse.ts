@@ -352,58 +352,37 @@ export class ZoomedDrawScope {
         const context = this.context;
         const helper = this.helper;
         if (SIMPLE_TRACK_DRAWING) {
-            const lineWidth = 1 / this.zoom;
-            // Translucent green (temp_mission §8): was fully opaque #00FF00.
-            context.strokeStyle = "rgba(0,255,0,0.55)";
-            context.lineWidth = lineWidth;
+            // Solid translucent polyline (user bug: dotted, rarer at speed).
+            // Single path, no per-segment mayDrawLine breaks, filtered to the
+            // visible window (+pad) and capped at 3000 recent points — at
+            // high speed the tail is kilometres long and 10 000 segments
+            // with per-segment culling read as isolated dots/gaps.
+            context.strokeStyle = "rgba(0,255,0,0.6)";
+            context.lineWidth = 1.5 / this.zoom;
             context.lineCap = "round";
             context.lineJoin = "round";
-            let prevX: number;
-            let prevY: number;
-            let drawing = false;
+            const pad = 600; // metres beyond the visible rect still drawn
+            const left = helper.x - pad;
+            const right = helper.x + helper.width + pad;
+            const top = helper.y - pad;
+            const bottom = helper.y + helper.height + pad;
+            const total = track.positions.size();
+            const from = Math.max(0, total - 3000);
+            const pts: Array<{ x: number; y: number }> = [];
             track.positions.forEach((point, idx) => {
-                if (idx !== 0) {
-                    if (helper.mayDrawLine(lineWidth, prevX, prevY, point.x, point.y)) {
-                        // Continuous solid line even at high speed (temp
-                        // mission §8): subdivide long high-speed segments so
-                        // the stroke never reads as a dotted line.
-                        const segLenM = Math.hypot(point.x - prevX, point.y - prevY);
-                        const maxSegM = 8 / this.zoom; // ≤8 CSS px per step
-                        const steps = Math.max(1, Math.ceil(segLenM / maxSegM));
-                        if (!drawing) {
-                            drawing = true;
-                            context.beginPath();
-                            context.moveTo(prevX, prevY);
-                        }
-                        for (let s = 1; s <= steps; s++) {
-                            context.lineTo(
-                                prevX + (point.x - prevX) * (s / steps),
-                                prevY + (point.y - prevY) * (s / steps),
-                            );
-                        }
-                    } else if (drawing) {
-                        drawing = false;
-                        context.stroke();
-                    }
+                if (idx < from) return;
+                if (point.x >= left && point.x <= right && point.y >= top && point.y <= bottom) {
+                    pts.push(point);
                 }
-                prevX = point.x;
-                prevY = point.y;
             });
-            if (drawing) {
-                drawing = false;
-                context.stroke();
-            }
-            //            if (positions.size < 2) return
-            //            drawPath(Path()
-            //                .apply {
-            //                    val p = positions[positions.size - 1]
-            //                    moveTo(p.x, p.y)
-            //                    positions.reversed().subList(1, positions.size).forEach { p ->
-            //                        lineTo(p.x, p.y)
-            //                    }
-            //                },
-            //                color = Color.Green, style = Stroke(1f/zoom))
-        } else {
+            if (pts.length < 2) return;
+            context.beginPath();
+            context.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) context.lineTo(pts[i].x, pts[i].y);
+            context.stroke();
+            return;
+        }
+        {
             if (track.positions.size() < 2) return;
             let prev: Vec2 | null = null;
             let a = 0.5;

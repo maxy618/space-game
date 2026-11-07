@@ -1,0 +1,240 @@
+# Goal: Current Sandbox Fixes, Physics Improvements, and High-Speed Flight
+
+This is an autonomous task. Independently investigate the project, conduct the necessary research, choose the best technical solutions, implement them, and verify the results.
+
+**Do not ask me for confirmation, present multiple options for me to choose from, or delegate technical decisions to me.** You are responsible for understanding the problems, making the necessary decisions independently, and delivering a working implementation.
+
+## 1. Core principle: Preserve existing behavior
+
+The project is currently a sandbox. This task is not an invitation to rewrite the entire game engine.
+
+It is extremely important that the game feels practically the same as it does now when first launched after these changes. The new physics model should be mathematically more accurate without unnecessarily changing familiar speeds, accelerations, distances, flight times, controls, or orbits.
+
+Do not change the existing scale of the game just to accommodate new formulas. Do not arbitrarily change telemetry values, UI values, or physics parameters.
+
+If internal unit conversions are required to make the units consistent, implement them in a way that preserves existing gameplay behavior and displayed values.
+
+Priorities:
+1. Mathematical correctness.
+2. Preserve existing behavior at ordinary speeds.
+3. Numerical stability.
+4. Minimize changes to the existing architecture.
+
+## 2. Independent physics research
+
+Before making changes, investigate the entire relevant physics pipeline in the repository.
+
+Determine the actual units used for coordinates, time, velocity, acceleration, mass, and gravity. Do not rely on comments alone: compare the implementation, tests, constants, and formulas.
+
+Research special relativity, relativistic momentum, the Lorentz factor, velocity changes under longitudinal and transverse forces, numerical integration, and the limitations of Newtonian gravity at high velocities.
+
+Use reliable scientific and educational sources. Independently select the most appropriate physical model for this project.
+
+There is no need to implement full general relativity. The goal is to establish a reasonable, physically grounded approximation for a relativistic spacecraft operating within the existing game's gravitational system.
+
+Once the research is complete, do not stop at describing the solution. Implement it yourself.
+
+## 3. Relativistic dynamics and the speed of light
+
+The game must distinguish between two different concepts:
+
+- The engine's acceleration limit.
+- The fundamental speed limit of the spacecraft.
+
+The values 4000 for the regular engine and 6000 for boost are limits on engine-driven acceleration. They are not limits on the spacecraft's total velocity.
+
+Gravitational maneuvers and other external forces must be able to accelerate the spacecraft beyond 6000. Disabling boost must not reset its existing velocity or artificially slow it down to 4000.
+
+However, a spacecraft with nonzero mass must never reach or exceed the speed of light.
+
+Research and implement an approach based on relativistic momentum:
+
+`p = γ * m0 * v`
+
+`γ = 1 / sqrt(1 - v² / C_GAME²)`
+
+For recovering velocity, investigate the numerically stable inverse relationship:
+
+`v = C_GAME * p / sqrt((m0 * C_GAME)² + |p|²)`
+
+These are mathematical starting points, not instructions to mechanically insert formulas. Verify that they are correctly applied within the existing integrator, including vector direction, momentum changes under applied forces, and interaction with existing constraints.
+
+The spacecraft's rest mass must remain constant. Do not artificially make its mass depend on velocity unless the chosen model actually requires it.
+
+### Choosing C_GAME
+
+Do not assign an arbitrary value to the speed of light.
+
+Define it in the same unit system actually used by the simulation.
+
+Choose a value that ensures:
+- The current speed range up to 4000 and 6000 behaves practically the same as it does now.
+- Movement at ordinary speeds retains its existing feel.
+- The transition into relativistic behavior is gradual.
+- Approaching the speed limit becomes noticeable at high velocities.
+- Velocity always remains strictly below `C_GAME`.
+
+60,000 game units per second can be considered as one candidate scenario, but it must not be treated as the correct value in advance.
+
+Mathematically compare several candidates. Independently choose the best one based on the scale of the system, existing parameters, and intended gameplay feel.
+
+Do not change `4000`, `6000`, or other existing gameplay values merely because a new speed limit has been introduced.
+
+### Gravity
+
+Pay particular attention to `Universe.updateAll()` and every other place where gravitational forces are applied.
+
+Verify:
+- Dimensional consistency.
+- Correct acceleration calculations.
+- That spacecraft mass does not incorrectly affect its gravitational acceleration.
+- Dependence on the gravitational source's mass and distance.
+- That gravity is not disabled prematurely near a star.
+- Interaction between gravity and relativistic momentum.
+
+Do not arbitrarily increase `GRAVITATION`.
+
+Gravity must continue accelerating the spacecraft beyond 4000 and 6000, and the engine speed limiter must not cancel or truncate gravitational acceleration.
+
+Investigate gravitational maneuvers involving moving planets and orbital energy exchange. Verify that they can actually change the spacecraft's velocity relative to the star system.
+
+For the current game, a relativistic spacecraft moving within the existing Newtonian gravitational field is an acceptable approximation. However, do not describe this as full general relativity. Account for the limitations of this approximation, especially near strong gravitational fields.
+
+## 4. Engine and controls
+
+Preserve the following rules:
+
+- The regular engine accelerates the spacecraft up to 4000.
+- Boost allows the engine to accelerate it up to 6000.
+- External forces can accelerate the spacecraft beyond both values.
+- Disabling boost does not change its existing velocity.
+- Once the spacecraft is above the engine's speed limit, the engine must not continue increasing its velocity along the direction of travel.
+- Braking and changing direction must remain possible.
+
+Pay particular attention to separating longitudinal and transverse thrust components. Do not disable all spacecraft control when its speed exceeds the engine limit.
+
+Carefully verify how thrust interacts with gravity within a single physics step. The engine limiter must not accidentally cancel the effects of external forces.
+
+## 5. Distortion and the feeling of high speed
+
+I like the current fisheye distortion. Preserve its current quality and character.
+
+Fix its dependency: the effect must be driven by the spacecraft's actual velocity, not by whether the boost button is pressed.
+
+Required behavior:
+- At low speeds, distortion is absent or barely noticeable.
+- At 6000, retain the current intensity.
+- Above 6000, the effect continues to increase, but progressively more slowly.
+- At 30000, the effect must still be noticeable, although the increase relative to 6000 should not be enormous.
+- Disabling boost must not make the effect disappear while the spacecraft is still moving fast.
+
+As an initial curve to investigate, consider:
+
+`strength = 1 + 0.12 * (1 - exp(-(speed - 6000) / 8000))`
+
+for speeds above 6000.
+
+The current distortion coefficient is `k = 0.30 * fisheyeSmooth`. Preserve its current appearance at 6000, then make further increases smooth and bounded.
+
+This is an artistic function, not a physical formula. Do not tie it directly to the Lorentz factor.
+
+Also fix the disappearance of the star and other objects when distortion is enabled. Check offscreen rendering, transformations, and rendering boundaries.
+
+## 6. Approaching stars, heating, and destruction
+
+The player must be able to approach stars very closely and perform dangerous flybys. Do not instantly destroy the spacecraft when it crosses an outer boundary.
+
+Implement a basic system:
+- Gravity continues to affect the spacecraft during approach.
+- A danger warning appears.
+- Heating accumulates within the corona region.
+- Heating depends on distance from the star and exposure duration.
+- The spacecraft can cool down after moving away.
+- Critical heating or crossing an inner danger boundary causes destruction.
+
+Distances must scale relative to the radius of each individual star.
+
+Add visual feedback: heating, glow, warnings, and gradually intensifying effects.
+
+### Destruction and respawn
+
+A basic respawn equivalent to the initial spacecraft spawn is sufficient for now, but implement a proper destruction sequence:
+- Flash.
+- Spacecraft destruction.
+- Particles and flying debris.
+- Effects fading out.
+- Spacecraft respawning.
+
+Respawning must not recreate the universe or reset explored planets or other world data. Only reset the spacecraft's state and related temporary effects.
+
+The destruction effect must be independent of the specific spacecraft model.
+
+## 7. Architecture for different spacecraft
+
+The current model is temporary. Different spacecraft with their own parameters and mechanics will be added in the future.
+
+Prepare the architecture accordingly. Separate physical characteristics from the specific visual model where necessary.
+
+Future spacecraft should be able to have different:
+- Acceleration.
+- Regular engine and boost limits.
+- Heating characteristics.
+- Hull and visual properties.
+- Destruction effects.
+
+Do not build a hangar, spacecraft selection, upgrade system, or full fleet system now. Only introduce the necessary groundwork without overengineering.
+
+## 8. Ship trail, model visibility, and nebula
+
+Fix the current visual problems:
+
+- The green trail must be translucent.
+- At high speeds, the trail must not turn into a dotted line.
+- The spacecraft must remain distinguishable when the camera is fully zoomed out, rather than becoming an excessively bright dot because of its outline.
+- Do not change the physical radius or hitbox to fix visual issues.
+
+The translucent polygonal areas around the star in Evidence 07 are decorative nebula blobs, not gravitational fields or the corona.
+
+Make them look more natural: soften their edges, add smooth transparency transitions, and make their colors slightly more visible while keeping the restrained palette.
+
+Make the pause button the same size as the boost button. Preserve safe-area handling, spacing, and the existing protection against overlapping telemetry.
+
+## 9. Autonomous verification and completion criteria
+
+You are fully responsible for verifying the result. Do not ask me to test changes, inspect screenshots, evaluate the work, or make technical decisions.
+
+**Do not use AI/vision-agent visual judgments as proof that the physics is correct.** Screenshots and subjective impressions are not sufficient criteria for passing the task.
+
+The primary verification methods must be mathematics, automated tests, numerical simulation, invariants, and checks of the simulation's actual behavior.
+
+Independently:
+- Add the necessary physics and integration tests.
+- Run all existing tests and the build.
+- Test multiple timestep sizes.
+- Test extreme velocities and momentum values.
+- Test longitudinal and transverse forces.
+- Test gravitational maneuvers.
+- Test transitions between regular engine and boost modes.
+- Test save and restore behavior.
+- Check for NaN, Infinity, and numerical discontinuities.
+- Check simulation determinism.
+- Check compatibility with existing planets, asteroids, orbits, landing, and autopilot.
+
+For relativistic physics, mathematically verify:
+- Strict enforcement of `v < C_GAME`.
+- Correct Lorentz factor.
+- Consistency between momentum and velocity.
+- Progressively smaller velocity gains as the speed of light is approached.
+- Preservation of velocity direction under longitudinal and transverse forces.
+- Convergence of results as timestep size decreases.
+- Preservation of previous behavior in the ordinary speed range.
+
+For visual changes, verify rendering parameters numerically, speed-dependent effect behavior, transparency, trail continuity, and correct Canvas transformations. You may run and investigate the application independently, but do not rely exclusively on an AI vision model deciding that an image looks correct.
+
+Do not stop after the first successful launch or compilation. If tests reveal problems, fix them and repeat the verification.
+
+**The task is complete only when all requirements have been implemented, mathematically verified, and shown not to break existing behavior.**
+
+Do not spend time producing demonstration screenshots, presentations, alternative proposals, or lengthy reports. Make the necessary decisions independently and finish the implementation.
+
+Do not add solar sails, energy collection, materials, resources, or a full spacecraft system now. Those are future ideas, not part of this task.
