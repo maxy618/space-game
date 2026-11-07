@@ -128,6 +128,41 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
     }
 
     /**
+     * Route autopilot line (user 2026-11-09): wide translucent DASHED line
+     * from the ship to the route target. GREEN while the pilot flies,
+     * RED while stopped on a threat (waiting for the player to steer back
+     * on course). Replaces the old solid autopilot lead-line.
+     */
+    drawRouteLine(universe: VisibleUniverse15) {
+        const ship = universe.ship as Spacecraft15;
+        const ap = ship.autopilot;
+        void ap;
+        const rt = universe.routeTarget;
+        if (rt === null) return;
+        const helper = this.helper;
+        if (!helper.width) return;
+        const context = this.context;
+        const stopped = universe.routePhase === "stopped";
+        const col = stopped ? "232,72,56" : "110,200,130";
+        context.save();
+        context.strokeStyle = "rgba(" + col + ",0.4)";
+        context.lineWidth = 5 / this.zoom;
+        context.setLineDash([18 / this.zoom, 14 / this.zoom]);
+        context.beginPath();
+        context.moveTo(universe.ship.pos.x, universe.ship.pos.y);
+        context.lineTo(rt.pos.x, rt.pos.y);
+        context.stroke();
+        context.setLineDash([]);
+        // target ring
+        context.strokeStyle = "rgba(" + col + ",0.65)";
+        context.lineWidth = 2 / this.zoom;
+        context.beginPath();
+        context.arc(rt.pos.x, rt.pos.y, rt.radius * 1.22 + 10 / this.zoom, 0, PI * 2);
+        context.stroke();
+        context.restore();
+    }
+
+    /**
      * Impact-ring marker around the threatened body (user 2026-11-08).
      * Reads the threat from the sim universe (set by the app layer at 10 Hz).
      * Restrained HUD styling: dashed ring + soft opacity breathing — no glow
@@ -184,6 +219,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         // runtime object is always VisibleUniverse15 (drawUniverse is
         // overridden there); the scope API keeps the base type
         this.drawImpactThreat(universe as VisibleUniverse15);
+        this.drawRouteLine(universe as VisibleUniverse15);
         this.drawScanWave(universe as VisibleUniverse15);
         const ship = universe.ship as Spacecraft15;
         const autopilot = ship.autopilot;
@@ -637,6 +673,10 @@ export class VisibleUniverse15 extends VisibleUniverse {
      * draw scope to render the impact ring.
      */
     impactThreat: { x: number; y: number; radius: number; tti: number; level: "warning" | "critical" } | null = null;
+
+    /** Route autopilot (user 2026-11-09): target body + phase, for the line. */
+    routeTarget: Planet | null = null;
+    routePhase: "chase" | "brake" | "arrived" | "stopped" | "off" = "off";
 
     initTest() {
         const systemName = "TEST SYSTEM"

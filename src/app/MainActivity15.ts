@@ -38,8 +38,7 @@ import { clamp, lexp } from "../core/Maths";
 import { lerp } from "../core/MathHelpers";
 import { Vec2, Vec2_copy, Vec2_makeWithAngleMag } from "../core/Vec2";
 import { VisibleUniverse15, ZoomedDrawScope15 } from "../render/VisibleUniverse15";
-import { StarClassNames, UniverseConst } from "../universe/Universe";
-import { Spacecraft } from "../universe/Universe";
+import { Asteroid, Landing, Planet, Spacecraft, Spark, SparkStyle, Star, StarClass, StarClassNames, StarClasses, Track, UniverseConst } from "../universe/Universe";
 import { Landing15, Spacecraft15 } from "../universe/Universe15";
 import { FlightStick } from "../input/FlightStick";
 import { InputActionLayer } from "../input/InputActions";
@@ -47,6 +46,7 @@ import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
 import { timeToImpact, impactGatesPass, IMPACT_CLEAR_SECONDS, IMPACT_CRITICAL_SECONDS } from "../universe/CollisionPredict";
 import { SCAN_COOLDOWN } from "../universe/Scanner";
+import { createRoutePilot, pilotStep, type RouteThreat } from "../sim/RoutePilot";
 import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, fisheyeTargetForSpeed, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M, decayKick, kickMetersForScreenPx } from "../camera/Camera";
 import { newRandom } from "../core/RandomKt";
 
@@ -898,6 +898,9 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const actions = inputLayer.resolve();
         const target = universe.follow instanceof Spacecraft ? universe.follow as Spacecraft : null;
         if (target !== null && !actions.stickActive) {
+            // any player flight input overrides the route pilot (except during
+            // the threat stop, where steering back is the designed recovery)
+            if (actions.forward > 0 || actions.brake > 0 || actions.steer !== 0) playerTookControl = true;
             const dt = lastFrameMillis < 0 ? 0 : clamp((millis - lastFrameMillis) / 1000, 0, 0.1);
             if (actions.steer !== 0) {
                 target.angle += actions.steer * KEYBOARD_TURN_RATE * dt;
@@ -1087,6 +1090,78 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         ctx2.restore();
     }
 
+    // ===== Route autopilot (user 2026-11-09) =====
+    // Simple A→B pilot with auto-boost; stops on threats and waits for the
+    // player to steer back on course. Route targets are picked on the radar
+    // map (main.ts resolves clicks → setRouteTargetById).
+    const routePilot = createRoutePilot();
+    let routeTarget: Planet | null = null;
+    let playerTookControl = false;
+    let arrivedClock = 0;
+    function setRouteTargetById(id: number | null) {
+        routeTarget = id === null ? null : (universe.planets.find(p => p.id === id) ?? null);
+        if (routeTarget === null) routePilot.active = false;
+        return routeTarget !== null;
+    }
+    function startRoute() {
+        if (routeTarget === null) return false;
+        playerTookControl = false;
+        routePilot.active = true;
+        routePilot.phase = "chase";
+        arrivedClock = 0;
+        return true;
+    }
+    function cancelRoute() {
+        routePilot.active = false;
+        routePilot.phase = "chase";
+        setBoost(false);
+        ship.thrust.x = 0;
+        ship.thrust.y = 0;
+        routeTarget = null;
+        universe.routeTarget = null;
+        universe.routePhase = "off";
+    }
+    function pilotUpdate(dt: number) {
+        if (routePilot.active === false || routeTarget === null) return;
+        // player override during flight (not during the threat stop — there
+        // the player steering back on course is the designed recovery)
+        if (playerTookControl && routePilot.phase !== "stopped") {
+            cancelRoute();
+            return;
+        }
+        const threats: RouteThreat[] = [];
+        for (const b of impactBodies()) {
+            if (b === routeTarget) continue;
+            threats.push({ x: b.pos.x, y: b.pos.y, vx: b.velocity.x, vy: b.velocity.y, radius: b.radius });
+        }
+        const intent = pilotStep(
+            routePilot,
+            { x: routeTarget.pos.x, y: routeTarget.pos.y, radius: routeTarget.radius, vx: routeTarget.velocity.x, vy: routeTarget.velocity.y },
+            threats,
+            { x: ship.pos.x, y: ship.pos.y, vx: ship.velocity.x, vy: ship.velocity.y, angle: ship.angle },
+            dt,
+            ship.profile.engineAccel,
+        );
+        // steering (pilot owns the nose in chase/brake; player steers in stop)
+        if (routePilot.phase !== "stopped") {
+            const bearing = Math.atan2(routeTarget.pos.y - ship.pos.y, routeTarget.pos.x - ship.pos.x);
+            let err = bearing - ship.angle;
+            while (err > PI) err -= PI * 2;
+            while (err < -PI) err += PI * 2;
+            const maxTurn = KEYBOARD_TURN_RATE * dt;
+            ship.angle += clamp(err, -maxTurn, maxTurn);
+        }
+        ship.thrust.x = intent.thrustX;
+        ship.thrust.y = intent.thrustY;
+        setBoost(intent.boost);
+        universe.routeTarget = routeTarget;
+        universe.routePhase = routePilot.phase;
+        if (routePilot.phase === "arrived") {
+            arrivedClock += dt;
+            if (arrivedClock > 2) { cancelRoute(); }
+        } else arrivedClock = 0;
+    }
+
     // Collision warning (user 2026-11-08): Elite-style impact alert. Every
     // ~100 ms we solve the closed-form closest-approach against every body;
     // a warning requires BOTH the ship's nose and its trajectory (relative
@@ -1195,6 +1270,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             liveSparks: universe.countLiveSparksPublic(),
             scan: { cooldown: universe.scan.cooldown, waveAge: universe.scan.waveAge },
             scannedCount: universe.planets.filter(p => p.scanned).length,
+            route: routeTarget === null ? null : { id: routeTarget.id, active: routePilot.active, phase: routePilot.phase },
         };
     }
 
@@ -1221,6 +1297,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         teleport: teleport,
         draw: (millis: number, context: CanvasRenderingContext2D, helper: CanvasHelper) => {
             applyKeyboardFlight(millis);
+            pilotUpdate(universe.dt);
             universe.simulateFrame(millis);
             updateImpactWarning(millis);
             space(context, helper);
@@ -1237,6 +1314,32 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         setRadarOpen: (open: boolean) => {
             radarOpen = open;
             if (radarOverlay) radarOverlay.classList.toggle("open", open);
-        }
+        },
+        setRouteTargetById,
+        startRoute,
+        cancelRoute,
+        routeInfo: () => routeTarget === null ? null : {
+            id: routeTarget.id,
+            active: routePilot.active,
+            phase: routePilot.phase,
+        },
+        /** Radar hit-test for route picking (canvas-local offsets from center). */
+        radarHitTest: (mx: number, my: number): number | null => {
+            if (!radarCanvas) return null;
+            const star = universe.star;
+            const maxOrbit = Math.max(
+                ...universe.planets.map(p => p.pos.distance(star.pos)),
+                UniverseConst.PLANET_ORBIT_RANGE_MIN * 1.2,
+            );
+            const scale = (radarCanvas.width * 0.44) / maxOrbit;
+            let best: { id: number; d: number } | null = null;
+            for (const p of universe.planets) {
+                const px = (p.pos.x - star.pos.x) * scale;
+                const py = (p.pos.y - star.pos.y) * scale;
+                const d = Math.hypot(px - mx, py - my);
+                if (d < 14 && (best === null || d < best.d)) best = { id: p.id, d };
+            }
+            return best === null ? null : best.id;
+        },
     };
 }

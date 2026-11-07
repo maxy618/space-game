@@ -68,7 +68,7 @@ let controlsInterval: any = -1;
 let controlsShow = false;
 
 const controlsContainer = document.getElementById("rightContainer")!;
-const autopilotButton = document.getElementById("autoPilotButton")!;
+const autopilotButton = document.getElementById("autoPilotDebugButton")!;
 let selectedZoomIndex = 0;
 const zoomSelect = document.getElementById("zoomSelect") as HTMLSelectElement;
 function zoomSelectChange() {
@@ -171,6 +171,10 @@ if (typeof location !== "undefined" && location.hash.includes("debug=1")) {
     // Debug-only teleport (QA routes; #debug=1): place the ship at a given
     // position/heading without disturbing the simulation.
     (window as unknown as { __teleport?: unknown }).__teleport = activity.teleport;
+    // Debug-only route autopilot API (QA routes; #debug=1).
+    (window as unknown as { __routeSetTarget?: unknown }).__routeSetTarget = activity.setRouteTargetById;
+    (window as unknown as { __routeStart?: unknown }).__routeStart = activity.startRoute;
+    (window as unknown as { __routeInfo?: unknown }).__routeInfo = activity.routeInfo;
 }
 const pointerInput = activity.pointerInput;
 const drawFn = activity.draw;
@@ -540,6 +544,7 @@ scanButton.addEventListener("click", () => {
     if (revealed > 0) console.log("SCAN: revealed " + revealed + " bod" + (revealed === 1 ? "y" : "ies"));
 });
 const radarButton = document.getElementById("radarButton") as HTMLButtonElement;
+const radarCanvas = document.getElementById("radarCanvas") as HTMLCanvasElement;
 let radarOpen = false;
 function setRadarOpen(open: boolean) {
     radarOpen = open;
@@ -559,6 +564,58 @@ inputLayer.setEdgeHandler("scan", () => scanButton.click());
 window.addEventListener("keydown", (e) => {
     if (e.code === "KeyR" && !e.repeat) radarButton.click();
 });
+
+// ===== Route autopilot UI (user 2026-11-09) =====
+const autoPilotButton = document.getElementById("autoPilotButton") as HTMLButtonElement;
+const routeBar = document.getElementById("routeBar") as HTMLElement;
+const routeAdd = document.getElementById("routeAdd") as HTMLButtonElement;
+const routeGo = document.getElementById("routeGo") as HTMLButtonElement;
+const routeCancel = document.getElementById("routeCancel") as HTMLButtonElement;
+let routePick: number | null = null;
+// autopilot button = open the map in ROUTE mode (targets are picked there)
+autoPilotButton.addEventListener("click", () => {
+    setRadarOpen(true);
+    routeBar.style.display = "flex";
+    autoPilotButton.blur();
+});
+// click a planet glyph on the radar → select it as the route target
+radarCanvas.addEventListener("click", (e) => {
+    const rect = radarCanvas.getBoundingClientRect();
+    const cx = (e.clientX - rect.left) * (radarCanvas.width / rect.width);
+    const cy = (e.clientY - rect.top) * (radarCanvas.height / rect.height);
+    // reverse the radar transform: canvas center = star, scale computed in draw
+    const mx = cx - radarCanvas.width / 2;
+    const my = cy - radarCanvas.height / 2;
+    // hit-test with the same scale logic as drawRadar (44% of canvas / maxOrbit)
+    const info = activity.routeInfo?.();
+    void info;
+    const hit = activity.radarHitTest?.(mx, my) ?? null;
+    routePick = hit;
+    routeAdd.style.opacity = hit === null ? "0.4" : "1";
+});
+routeAdd.addEventListener("click", () => {
+    if (routePick === null) return;
+    activity.setRouteTargetById(routePick);
+    routeAdd.textContent = "ADDED ✓".replace("✓", "");
+    setTimeout(() => { routeAdd.textContent = "ADD ROUTE"; }, 900);
+});
+routeGo.addEventListener("click", () => {
+    if (activity.setRouteTargetById(routePick) && activity.startRoute()) {
+        setRadarOpen(false);
+        routeBar.style.display = "none";
+    }
+});
+routeCancel.addEventListener("click", () => {
+    activity.cancelRoute();
+    routeBar.style.display = "none";
+    autoPilotButton.classList.remove("engaged", "stopped");
+});
+// keep the autopilot button in sync with the pilot state
+setInterval(() => {
+    const info = activity.routeInfo?.();
+    autoPilotButton.classList.toggle("engaged", info?.active === true && info.phase !== "stopped");
+    autoPilotButton.classList.toggle("stopped", info?.phase === "stopped");
+}, 250);
 
 pauseContinue.addEventListener("click", function () {
     setPlayerPaused(false);
