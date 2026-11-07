@@ -70,7 +70,10 @@ export const enum UniverseConst {
 
     SPACECRAFT_MASS = 10,
 
-    CRAFT_SPEED_LIMIT = 5_000,
+    // Base cruise cap. Boost raises the cap to CRAFT_SPEED_LIMIT_BOOST while
+    // engaged (user 2026-11-08).
+    CRAFT_SPEED_LIMIT = 4_000,
+    CRAFT_SPEED_LIMIT_BOOST = 6_000,
     MAIN_ENGINE_ACCEL = 1000, // thrust effect, pixels per second squared
     LAUNCH_MECO = 2, // how long to suspend gravity when launching
 
@@ -189,12 +192,30 @@ export class Star extends Planet {
     }
 }
 
+export class Asteroid extends Body {
+    /** Deterministic visual seed in [0,1): drives the polygon shape. */
+    seed = 0;
+    /** Spin rate (rad/s), signed. */
+    spin = 0;
+    constructor(radius: number) {
+        super();
+        this.radius = radius;
+        this.mass = FOUR_OVER_THREE * PI * radius * radius * radius * (UniverseConst.PLANETARY_DENSITY / 2);
+        this.collides = false;
+    }
+    update(sim: Simulator, dt: number) {
+        this.angle += this.spin * dt;
+        super.update(sim, dt);
+    }
+}
+
 export class Universe extends Simulator {
     readonly namer: Namer;
     latestDiscovery: Planet | null = null;
     star!: Star;
     ship!: Spacecraft;
     planets: Array<Planet> = [];
+    asteroids: Array<Asteroid> = [];
     follow: Body | null = null;
     ringfence = new Container(UniverseConst.UNIVERSE_RANGE);
 
@@ -302,6 +323,7 @@ export class Universe extends Simulator {
             this.planets.push(p);
             this.addEntity(p);
         }
+        this.spawnAsteroids(12);
         this.planets.sort((a, b) => a.pos.distance(this.star.pos) - b.pos.distance(this.star.pos));
         this.planets.forEach((planet, idx) => planet.name = (systemName + " " + (idx + 1)));
         this.addEntity(this.star);
@@ -346,6 +368,35 @@ export class Universe extends Simulator {
         fn(this.star);
 
         super.updateAll(dt, entities);
+    }
+
+    /**
+     * Spawn drifting debris (user 2026-11-08): 12 seeded asteroids in the
+     * orbit band with tangential velocities around the star, so they slowly
+     * orbit under gravity. They are visual/physics bodies, not landable —
+     * collisions are disabled, they keep stable ids (2001+) and are NOT saved
+     * (decorative debris, regenerated from the world seed).
+     */
+    spawnAsteroids(count: number) {
+        for (let i = 0; i < count; i++) {
+            const radius = this.rngForInit.minmax(30, 220);
+            const orbitRadius = lerp(
+                UniverseConst.PLANET_ORBIT_RANGE_MIN,
+                UniverseConst.PLANET_ORBIT_RANGE_MAX,
+                this.rngForInit.float()
+            );
+            const a = new Asteroid(radius);
+            a.id = 2001 + i;
+            a.seed = this.rngForInit.float();
+            a.spin = this.rngForInit.minmax(-0.6, 0.6);
+            Vec2_makeWithAngleMag(a.pos, this.rngForInit.float() * PI * 2, orbitRadius).addSelf(this.star.pos);
+            // circular-orbit velocity (same Keplerians as planets)
+            const period = sqrt(orbitRadius * orbitRadius * orbitRadius / this.star.mass) * UniverseConst.KEPLER_CONSTANT;
+            const speed = 2 * PI * orbitRadius / period;
+            Vec2_makeWithAngleMag(a.velocity, Vec2_angle(a.pos, this.star.pos) + PI / 2, speed);
+            this.asteroids.push(a);
+            this.addEntity(a);
+        }
     }
 
     closestPlanet(): Planet {
@@ -650,6 +701,12 @@ export class Spacecraft extends Body {
 
     transit = false;
 
+    /** Boost burner engaged (user 2026-11-08): raises the speed cap from
+     * 4000 to 6000 while held. Set by the boost button in main.ts. */
+    boost = false;
+    /** Thrust multiplier (boost = 1.5). Applied in update(). */
+    thrustMultiplier = 1;
+
     track = new Track();
 
     landing: Landing | null = null;
@@ -664,7 +721,7 @@ export class Spacecraft extends Body {
         // check for thrusters
         const thrustMag = this.thrust.mag();
         if (thrustMag > 0) {
-            let deltaV = UniverseConst.MAIN_ENGINE_ACCEL * dt;
+            let deltaV = UniverseConst.MAIN_ENGINE_ACCEL * dt * this.thrustMultiplier;
             if (SCALED_THRUST) deltaV *= clamp(thrustMag, 0, 1);
 
             if (this.landing === null) {
@@ -691,9 +748,10 @@ export class Spacecraft extends Body {
             if (this.launchClock !== 0) this.launchClock = 0;
         }
 
-        // apply global speed limit
-        if (this.velocity.mag() > UniverseConst.CRAFT_SPEED_LIMIT)
-            Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), UniverseConst.CRAFT_SPEED_LIMIT);
+        // apply global speed limit (boost raises it 4000 → 6000)
+        const speedLimit = this.boost ? UniverseConst.CRAFT_SPEED_LIMIT_BOOST : UniverseConst.CRAFT_SPEED_LIMIT;
+        if (this.velocity.mag() > speedLimit)
+            Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
 
         super.update(sim, dt);
     }

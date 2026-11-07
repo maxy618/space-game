@@ -70,7 +70,7 @@ export class Spacecraft15 extends Spacecraft {
         // check for thrusters
         const thrustMag = this.thrust.mag();
         if (thrustMag > 0) {
-            let deltaV = UniverseConst.MAIN_ENGINE_ACCEL * dt;
+            let deltaV = UniverseConst.MAIN_ENGINE_ACCEL * dt * this.thrustMultiplier;
             if (SCALED_THRUST) deltaV *= clamp(thrustMag, 0, 1);
 
             if (this.landing !== null) {
@@ -92,9 +92,10 @@ export class Spacecraft15 extends Spacecraft {
             if (this.launchClock !== 0) this.launchClock = 0;
         }
 
-        // apply global speed limit
-        if (this.velocity.mag() > UniverseConst.CRAFT_SPEED_LIMIT)
-            Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), UniverseConst.CRAFT_SPEED_LIMIT);
+        // apply global speed limit (boost raises it 4000 → 6000)
+        const speedLimit = this.boost ? UniverseConst.CRAFT_SPEED_LIMIT_BOOST : UniverseConst.CRAFT_SPEED_LIMIT;
+        if (this.velocity.mag() > speedLimit)
+            Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
 
         updateBody.call(this, sim, dt);
     }

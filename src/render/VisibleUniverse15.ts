@@ -37,7 +37,7 @@ import { Namer15 } from "../core/Namer15";
 import { createPolygon, drawPolygon, parseSvgPathData } from "../core/PathTools";
 import { Constraint, Container, Simulator } from "../core/Physics";
 import { chooseRandom } from "../core/Randomness";
-import { Landing, Planet, Spacecraft, Spark, SparkStyle, Star, StarClass, StarClasses, UniverseConst } from "../universe/Universe";
+import { Asteroid, Landing, Planet, Spacecraft, Spark, SparkStyle, Star, StarClass, StarClasses, UniverseConst } from "../universe/Universe";
 import { Landing15, Spacecraft15 } from "../universe/Universe15";
 import { Vec2, Vec2_angle, Vec2_copy, Vec2_makeWithAngleMag } from "../core/Vec2";
 import { VisibleUniverse, ZoomedDrawScope } from "./VisibleUniverse";
@@ -92,6 +92,8 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             if (it === universe.star) return; // don't draw the star as a planet
             if (it instanceof Spark) {
                 this.drawSpark(it);
+            } else if (it instanceof Asteroid) {
+                this.drawAsteroid(it);
             } else if (it instanceof Planet) {
                 this.drawPlanet(it);
             }
@@ -102,6 +104,54 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             this.drawAutopilot(autopilot);
         }
         this.drawSpacecraft(ship);
+    }
+    /**
+     * Asteroids (user 2026-11-08): irregular seeded polygon, crater shading,
+     * slow spin from the physics body angle. Never a disc, never a palette
+     * clone — the seed drives both silhouette and crater layout.
+     */
+    drawAsteroid(a: Asteroid) {
+        const context = this.context;
+        const helper = this.helper;
+        if (!helper.width) return;
+        const left = helper.x;
+        const top = helper.y;
+        const right = left + helper.width;
+        const bottom = top + helper.height;
+        if (a.pos.x + a.radius * 2 < left || a.pos.x - a.radius * 2 > right
+            || a.pos.y + a.radius * 2 < top || a.pos.y - a.radius * 2 > bottom) return;
+        const seed = a.seed;
+        context.save();
+        context.translate(a.pos.x, a.pos.y);
+        context.rotate(a.angle);
+        // irregular silhouette: 9 vertices, radii from the seed
+        context.beginPath();
+        const verts = 9;
+        for (let i = 0; i < verts; i++) {
+            const ang = (i / verts) * PI * 2;
+            const rr = a.radius * (0.55 + (((seed * 97 + i * 31) % 1) + 1) % 1 * 0.55);
+            const px = Math.cos(ang) * rr;
+            const py = Math.sin(ang) * rr * 0.85;
+            if (i === 0) context.moveTo(px, py);
+            else context.lineTo(px, py);
+        }
+        context.closePath();
+        context.fillStyle = "#6B5B4D";
+        context.fill();
+        context.strokeStyle = "rgba(220,205,185,0.55)";
+        context.lineWidth = 2 / this.zoom;
+        context.stroke();
+        // craters: 3 seeded dips
+        context.fillStyle = "rgba(0,0,0,0.28)";
+        for (let i = 0; i < 3; i++) {
+            const ang = (seed * 13.7 + i * 2.4) * PI;
+            const d = a.radius * 0.34 * (((seed + i * 0.41) % 1 + 1) % 1);
+            const cr = a.radius * (0.12 + (i % 2) * 0.05);
+            context.beginPath();
+            context.arc(Math.cos(ang) * d, Math.sin(ang) * d, cr, 0, PI * 2);
+            context.fill();
+        }
+        context.restore();
     }
     drawNebula() {
         const context = this.context;
@@ -463,9 +513,11 @@ export class VisibleUniverse15 extends VisibleUniverse {
             p.atmosphere = this.namer.describeAtmo(this.rngForInit);
             p.flora = this.namer.describeLife(this.rngForInit);
             p.fauna = this.namer.describeLife(this.rngForInit);
+            p.visualSeed = this.rngForInit.float(); // deterministic patch seed
             this.planets.push(p);
             this.addEntity(p);
         }
+        this.spawnAsteroids(12);
         this.planets.sort((a, b) => a.pos.distance(this.star.pos) - b.pos.distance(this.star.pos));
         this.planets.forEach((planet, idx) => planet.name = (systemName + " " + (idx + 1)));
         this.addEntity(this.star);

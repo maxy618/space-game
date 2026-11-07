@@ -69,10 +69,12 @@ let DYNAMIC_ZOOM = false;
 // Project-native player feature: the camera view scales smoothly with ship speed
 // so the player FEELS speed. Speed/pause/manual-zoom are debug-only (see main.ts).
 // Visible-space factor: stopped = 0.7x (closer), medium speed = 1.0x (exactly the
-// original default view), max speed = 2.2x (farther). Interpolated linearly in
-// between and smoothed per frame. The ship always stays clearly visible.
+// original default view), base cap (4000) = 2.2x (farther), boost (6000) = 4.4x
+// (2x past base cap). Interpolated linearly in between and smoothed per frame.
+// The ship always stays clearly visible.
 const SPEED_ZOOM_NEAR = 0.7; // visible-space factor when the ship is stopped
-const SPEED_ZOOM_FAR = 2.2; // visible-space factor at CRAFT_SPEED_LIMIT (user 2026-11-07: 1.3-1.5x more zoom-out at max speed than the previous 1.7)
+const SPEED_ZOOM_FAR = 2.2; // visible-space factor at CRAFT_SPEED_LIMIT (4000)
+const SPEED_ZOOM_FAR_BOOST = 4.4; // visible-space factor at CRAFT_SPEED_LIMIT_BOOST (6000): 2x past base cap
 const SPEED_ZOOM_REF = 800; // px/s treated as "medium" speed = exactly the original view
 let SPEED_ZOOM_ENABLED = true;
 
@@ -81,6 +83,11 @@ let SPEED_ZOOM_ENABLED = true;
 // 1.5x farther than before at every speed. Applied to the base zoom
 // everywhere, so relative velocity-zoom behavior is unchanged.
 const CAMERA_DISTANCE = 1.5;
+
+// Fisheye warp-boost edge distortion strength (user 2026-11-08). 0 = off,
+// 1 = full. Driven by boost engagement, applied as radial screen warp per
+// frame in the render layer below (barrel toward edges, center stays sharp).
+let FISHEYE = 0;
 
 let playSpeed = 1;
 let camZoom = DEFAULT_CAMERA_ZOOM;
@@ -227,24 +234,40 @@ function Spaaaace(
     const reducedMotion = typeof window !== "undefined"
         && typeof window.matchMedia === "function"
         && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Fisheye offscreen render target (user 2026-11-08): the world renders
+    // into this canvas, then gets radially barrel-warped back to the screen.
+    const offCanvas = document.createElement("canvas");
+    const offCtx = offCanvas.getContext("2d") as CanvasRenderingContext2D;
+    let fisheyeSmooth = 0;
     let kickX = 0;
     let kickY = 0;
     const KICK_DECAY_RATE = 6; // per second → ~0.5 s visible kick
     let prevLanding = false;
     let prevDiscovery: number | null = null;
 
-    // Deterministic starfield (P05-T03): seeded once per scene, phase-locked
-    // to camera translation only (never zoom-scaled), wrapped in 512 px tiles.
+    // Deterministic multi-layer starfield (P05-T03, deepened 2026-11-08):
+    // three parallax planes — far (0.08 px/m, fine), mid (0.15 px/m, bigger
+    // brighter), near dust (1.3 px/m, faint) — phase-locked to camera
+    // translation only (never zoom-scaled), wrapped in 512 px tiles.
     const STARFIELD_SEED = 123456789n;
     const starfieldRng = newRandom(STARFIELD_SEED);
     interface StarDot { x: number; y: number; size: number; alpha: number }
     const starfield: StarDot[] = [];
-    for (let i = 0; i < 140; i++) {
+    for (let i = 0; i < 110; i++) {
         starfield.push({
             x: starfieldRng.minmax(0, 512),
             y: starfieldRng.minmax(0, 512),
-            size: starfieldRng.minmax(0.6, 1.8),
-            alpha: starfieldRng.minmax(0.18, 0.85),
+            size: starfieldRng.minmax(0.5, 1.4),
+            alpha: starfieldRng.minmax(0.16, 0.7),
+        });
+    }
+    const midfield: StarDot[] = [];
+    for (let i = 0; i < 60; i++) {
+        midfield.push({
+            x: starfieldRng.minmax(0, 512),
+            y: starfieldRng.minmax(0, 512),
+            size: starfieldRng.minmax(1.2, 2.8),
+            alpha: starfieldRng.minmax(0.35, 0.95),
         });
     }
     const dustfield: StarDot[] = [];
@@ -263,8 +286,25 @@ function Spaaaace(
     return (context: CanvasRenderingContext2D, helper: CanvasHelper) => {
         const canvasWidth = context.canvas.width;
         const canvasHeight = context.canvas.height;
-        context.fillStyle = Colors.Eigengrau;
-        context.fillRect(0, 0, canvasWidth, canvasHeight);
+
+        // Smooth fisheye strength toward its target; the world renders into
+        // an offscreen canvas while the warp is active, then gets tiled back
+        // with a radial barrel mapping (center sharp, edges warped).
+        if (!reducedMotion) {
+            if (FISHEYE > fisheyeSmooth) fisheyeSmooth = Math.min(FISHEYE, fisheyeSmooth + u.dt * 2.2);
+            else fisheyeSmooth = Math.max(FISHEYE, fisheyeSmooth - u.dt * 3.0);
+        } else {
+            fisheyeSmooth = 0;
+        }
+        const warpActive = fisheyeSmooth > 0.01;
+        const drawCtx = warpActive ? offCtx : context;
+        if (warpActive) {
+            if (offCanvas.width !== canvasWidth) offCanvas.width = canvasWidth;
+            if (offCanvas.height !== canvasHeight) offCanvas.height = canvasHeight;
+        }
+        const w2 = drawCtx;
+        w2.fillStyle = Colors.Eigengrau;
+        w2.fillRect(0, 0, canvasWidth, canvasHeight);
 
         // Depth layers (P05-T03): distant starfield + foreground dust. Drawn
         // in device pixels (identity transform) BEFORE the world grid: far
@@ -272,8 +312,8 @@ function Spaaaace(
         // dust runs hyper-parallax (1.3 px/m). Both wrap in 512 px tiles.
         {
             const dpr = window.devicePixelRatio;
-            context.save();
-            context.setTransform(1, 0, 0, 1, 0, 0);
+            w2.save();
+            w2.setTransform(1, 0, 0, 1, 0, 0);
             const tile = 512;
             const tilesX = Math.ceil(canvasWidth / tile) + 1;
             const tilesY = Math.ceil(canvasHeight / tile) + 1;
@@ -285,17 +325,18 @@ function Spaaaace(
                     const by = wrapTile(dot.y + oy, tile);
                     for (let tx = 0; tx < tilesX; tx++) {
                         for (let ty = 0; ty < tilesY; ty++) {
-                            context.globalAlpha = dot.alpha;
-                            context.fillStyle = "#D8D8FF";
-                            context.fillRect(bx + tx * tile, by + ty * tile, dot.size * dpr, dot.size * dpr);
+                            w2.globalAlpha = dot.alpha;
+                            w2.fillStyle = "#D8D8FF";
+                            w2.fillRect(bx + tx * tile, by + ty * tile, dot.size * dpr, dot.size * dpr);
                         }
                     }
                 }
-                context.globalAlpha = 1;
+                w2.globalAlpha = 1;
             };
             drawLayer(starfield, STARFIELD_PARALLAX_PX_PER_M);
+            drawLayer(midfield, 0.15);
             drawLayer(dustfield, DUST_PARALLAX_PX_PER_M);
-            context.restore();
+            w2.restore();
         }
 
         // High-DPI fix (user report: 2.5K phone showed the world ~3x too far).
@@ -321,7 +362,14 @@ function Spaaaace(
             const speed = u.ship.velocity.mag();
             // One smooth curve, no kinks (extracted to Camera.ts, P05-T02):
             // both halves flatten at the junction (speed == SPEED_ZOOM_REF).
-            const factor = velocityZoomFactor(speed, SPEED_ZOOM_NEAR, SPEED_ZOOM_FAR, SPEED_ZOOM_REF, UniverseConst.CRAFT_SPEED_LIMIT);
+            // Above the base cap (boost), keep easing out to 2x the far factor.
+            let factor: number;
+            if (speed <= UniverseConst.CRAFT_SPEED_LIMIT) {
+                factor = velocityZoomFactor(speed, SPEED_ZOOM_NEAR, SPEED_ZOOM_FAR, SPEED_ZOOM_REF, UniverseConst.CRAFT_SPEED_LIMIT);
+            } else {
+                const t = clamp((speed - UniverseConst.CRAFT_SPEED_LIMIT) / (UniverseConst.CRAFT_SPEED_LIMIT_BOOST - UniverseConst.CRAFT_SPEED_LIMIT), 0, 1);
+                factor = SPEED_ZOOM_FAR + (SPEED_ZOOM_FAR_BOOST - SPEED_ZOOM_FAR) * t * t;
+            }
             const targetZoom = (camZoom / CAMERA_DISTANCE) / factor;
             // Clamp to a positive range: a zero/negative cameraZoom would hang the
             // gridStep while-loop below and freeze the whole page.
@@ -396,9 +444,9 @@ function Spaaaace(
         const dp32 = toLocalPx(32);
         while (gridStep * deviceScale < dp32) gridStep *= 10;
 
-        context.save();
-        context.scale(deviceScale, deviceScale);
-        context.translate(
+        w2.save();
+        w2.scale(deviceScale, deviceScale);
+        w2.translate(
             (-visibleSpaceRectMeterCenterX + canvasWidth * 0.5 / deviceScale),
             (-visibleSpaceRectMeterCenterY + canvasHeight * 0.5 / deviceScale)
         );
@@ -418,32 +466,53 @@ function Spaaaace(
         // )
 
         var x = floor(visibleSpaceRectMeterLeft / gridStep) * gridStep;
-        context.strokeStyle = Colors.Eigengrau2;
+        w2.strokeStyle = Colors.Eigengrau2;
         while (x < visibleSpaceRectMeterRight) {
-            context.lineWidth = (((x % (gridStep * 10) === 0)) ? 3 : 1.5) / cameraZoom;
-            context.beginPath();
-            context.moveTo(x, visibleSpaceRectMeterTop);
-            context.lineTo(x, visibleSpaceRectMeterBottom);
-            context.stroke();
+            w2.lineWidth = (((x % (gridStep * 10) === 0)) ? 3 : 1.5) / cameraZoom;
+            w2.beginPath();
+            w2.moveTo(x, visibleSpaceRectMeterTop);
+            w2.lineTo(x, visibleSpaceRectMeterBottom);
+            w2.stroke();
             x += gridStep;
         }
 
         var y = floor(visibleSpaceRectMeterTop / gridStep) * gridStep;
         while (y < visibleSpaceRectMeterBottom) {
-            context.lineWidth = (((y % (gridStep * 10) === 0)) ? 3 : 1.5) / cameraZoom;
-            context.beginPath();
-            context.moveTo(visibleSpaceRectMeterLeft, y);
-            context.lineTo(visibleSpaceRectMeterRight, y);
-            context.stroke();
+            w2.lineWidth = (((y % (gridStep * 10) === 0)) ? 3 : 1.5) / cameraZoom;
+            w2.beginPath();
+            w2.moveTo(visibleSpaceRectMeterLeft, y);
+            w2.lineTo(visibleSpaceRectMeterRight, y);
+            w2.stroke();
             y += gridStep;
         }
 
         zoomedDrawScope.zoom = cameraZoom;
-        zoomedDrawScope.context = context;
+        zoomedDrawScope.context = w2;
         zoomedDrawScope.helper = helper;
         zoomedDrawScope.drawUniverse(u);
 
-        context.restore();
+        w2.restore();
+
+        // Fisheye blit: radial barrel mapping offscreen → screen, tile by tile.
+        if (warpActive) {
+            const cx = canvasWidth / 2;
+            const cy = canvasHeight / 2;
+            const R = Math.hypot(cx, cy);
+            const T = 48; // device-px tile
+            const k = 0.30 * fisheyeSmooth;
+            for (let ty = 0; ty < canvasHeight; ty += T) {
+                for (let tx = 0; tx < canvasWidth; tx += T) {
+                    const dx = tx + T / 2 - cx;
+                    const dy = ty + T / 2 - cy;
+                    const r = Math.hypot(dx, dy);
+                    const t = r / R;
+                    const srcR = r * (1 - k * t * t);
+                    const sx = cx + (dx / (r || 1)) * srcR;
+                    const sy = cy + (dy / (r || 1)) * srcR;
+                    context.drawImage(offCanvas, clamp(sx - T / 2, 0, canvasWidth - T), clamp(sy - T / 2, 0, canvasHeight - T), T, T, tx, ty, T, T);
+                }
+            }
+        }
     }
 }
 
@@ -474,6 +543,13 @@ export function setPlaySpeed(speed: number) {
 /** Enable/disable the player-facing velocity zoom-out effect. */
 export function setSpeedZoomEnabled(enabled: boolean) {
     SPEED_ZOOM_ENABLED = enabled;
+}
+
+/** Fisheye warp-boost strength 0..1 (0.02 handled smooth inside Spaaaace). */
+export function setBoostEngaged(engaged: boolean) {
+    // Gating: boost only engages at/above base cap; main.ts enforces the UI
+    // rule (button disabled below cap), this keeps the engine honest.
+    FISHEYE = engaged ? 1 : 0;
 }
 
 export function setIsBaklava(baklava: boolean) {    if (baklava != isBaklava) {
@@ -513,7 +589,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     const flightStick = FlightStick(
         minRadius,
         maxRadius,
-        Colors.Green,
+        Colors.Console,
         (x, y, isDown) => {
             // every device feeds the same action layer (P04-T01); the stick
             // mapping below stays the reference behavior for stick input.
@@ -596,9 +672,16 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         inputLayer.consumeEdge("landLaunch");
     }
 
+    // Boost control (user 2026-11-08): main.ts flips ship.boost + multiplier.
+    function setBoost(engaged: boolean) {
+        ship.boost = engaged;
+        ship.thrustMultiplier = engaged ? 1.5 : 1;
+    }
+
     return {
         pointerInput: flightStick.pointerInput,
         setAutopilot: setAutopilot,
+        setBoost: setBoost,
         draw: (millis: number, context: CanvasRenderingContext2D, helper: CanvasHelper) => {
             applyKeyboardFlight(millis);
             universe.simulateFrame(millis);

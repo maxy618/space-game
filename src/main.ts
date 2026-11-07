@@ -25,6 +25,7 @@ import {
     getIsBaklava,
     MainActivity15,
     RandomSeedType,
+    setBoostEngaged,
     setCamZoom,
     setDynamicZoom,
     setFixedRandomSeed,
@@ -35,6 +36,7 @@ import {
 } from "./app/MainActivity15";
 import { initSpeedControl } from "./playerSpeed";
 import { InputActionLayer } from "./input/InputActions";
+import { UniverseConst } from "./universe/Universe";
 
 const unsupportedFeatures: Array<String> = [];
 if (typeof BigInt === "undefined") {
@@ -461,6 +463,67 @@ pauseButton.addEventListener("click", function () {
 inputLayer.setEdgeHandler("pause", function () {
     pauseButton.click();
 });
+
+// Boost burner (user 2026-11-08): only engages at/above the 4000 cruise cap;
+// while held the cap rises to 6000 and the camera pulls back 2x past base
+// with fisheye edge distortion. Two modes, auto-detected by press duration:
+//  - HOLD (>250 ms): boost until released; releasing turns it off.
+//  - TAP (≤250 ms): toggles boost on/off until the next tap.
+// Toggle mode auto-disengages if velocity drops below 3500 (below cap - hysteresis).
+const boostButton = document.getElementById("boostButton") as HTMLButtonElement;
+let boostHeld = false;
+let boostKnownVelocity = 0;
+let boostToggleOn = false;
+let pressStartedAt = 0;
+let boostMode: "none" | "hold" | "tap" = "none";
+
+function currentShipVelocity(): number {
+    const text = document.getElementById("bottomText")?.textContent ?? "";
+    const m = /VEL:\s*(\d+)/.exec(text);
+    return m ? Number(m[1]) : boostKnownVelocity;
+}
+
+function syncBoost() {
+    const vel = currentShipVelocity();
+    boostKnownVelocity = vel;
+    // toggle mode cancels if the ship slows below the hysteresis floor
+    if (boostToggleOn && vel < UniverseConst.CRAFT_SPEED_LIMIT - 500) {
+        boostToggleOn = false;
+    }
+    const atCap = vel >= UniverseConst.CRAFT_SPEED_LIMIT - 1;
+    boostButton.disabled = !atCap;
+    // HOLD engaged while the finger stays down past 300 ms; TAP engaged
+    // while the toggle state is on.
+    const holdEngaged = boostHeld && (performance.now() - pressStartedAt) > 300 && atCap;
+    const engaged = holdEngaged || (boostToggleOn && atCap);
+    boostButton.classList.toggle("engaged", engaged);
+    setBoostEngaged(engaged);
+    activity.setBoost(engaged);
+}
+function pressBoost() {
+    boostHeld = true;
+    pressStartedAt = performance.now();
+    boostButton.classList.add("held");
+    syncBoost();
+}
+function releaseBoost() {
+    const wasTap = boostHeld && (performance.now() - pressStartedAt) <= 300;
+    boostHeld = false;
+    boostMode = "none";
+    boostButton.classList.remove("held");
+    if (wasTap) {
+        // quick tap → flip the toggle (stays until the next tap or slow-down)
+        boostToggleOn = !boostToggleOn;
+    }
+    syncBoost();
+}
+boostButton.addEventListener("pointerdown", (e) => { e.preventDefault(); pressBoost(); });
+boostButton.addEventListener("pointerup", releaseBoost);
+boostButton.addEventListener("pointercancel", releaseBoost);
+boostButton.addEventListener("pointerleave", releaseBoost);
+boostButton.addEventListener("click", (e) => e.preventDefault());
+// sync every frame so the disabled state tracks the cruise cap
+setInterval(syncBoost, 200);
 
 pauseContinue.addEventListener("click", function () {
     setPlayerPaused(false);
