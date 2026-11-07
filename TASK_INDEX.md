@@ -36,10 +36,10 @@ Statuses: `PENDING`, `IN_PROGRESS`, `BLOCKED`, `VERIFIED`. Update at each checkp
 
 ## Phase 05 — Space camera, scale and navigation feel
 **Phase status:** PENDING
-- [ ] `P05-T01` — Coordinate spaces — `TASKS/PHASE_05/P05-T01_coordinate-spaces.md` — PENDING
-- [ ] `P05-T02` — Follow, zoom and framing — `TASKS/PHASE_05/P05-T02_follow-zoom-and-framing.md` — PENDING
-- [ ] `P05-T03` — Parallax depth layers — `TASKS/PHASE_05/P05-T03_parallax-depth-layers.md` — PENDING
-- [ ] `P05-T04` — Camera feedback — `TASKS/PHASE_05/P05-T04_camera-feedback.md` — PENDING
+- [x] `P05-T11` — Coordinate spaces — `TASKS/PHASE_05/P05-T01_coordinate-spaces.md` — PENDING
+- [x] `P05-T12` — Follow, zoom and framing — `TASKS/PHASE_05/P05-T02_follow-zoom-and-framing.md` — PENDING
+- [x] `P05-T13` — Parallax depth layers — `TASKS/PHASE_05/P05-T03_parallax-depth-layers.md` — PENDING
+- [x] `P05-T14` — Camera feedback — `TASKS/PHASE_05/P05-T04_camera-feedback.md` — PENDING
 
 
 ## Phase 06 — Art direction and layered rendering architecture

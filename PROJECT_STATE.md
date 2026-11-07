@@ -1,10 +1,10 @@
 # Project state
 
-**Active phase:** 04 — Ship controls and movement feel (COMPLETE)
-**Active task:** none — Phase 04 closed (P04-T04 VERIFIED)
-**Overall status:** P01 ✅ | P02 ✅ | P03 ✅ | P04-T01 ✅ | P04-T02 ✅ | P04-T03 ✅ | P04-T04 ✅
-**Last verified commit:** 78d9a5b (P04-T03) + P04-T04 commit
-**Latest QA evidence:** EVIDENCE/PHASE_04/P04-T04/ (completion-report.md, t04-a..b)
+**Active phase:** 05 — Space camera, scale and navigation feel (COMPLETE)
+**Active task:** none — Phase 05 closed (P05-T04 VERIFIED)
+**Overall status:** P01 ✅ | P02 ✅ | P03 ✅ | P04 ✅ | P05-T01 ✅ | P05-T02 ✅ | P05-T03 ✅ | P05-T04 ✅
+**Last verified commit:** f1908f2 (P05-T04)
+**Latest QA evidence:** EVIDENCE/PHASE_05/P05-T04/ (completion-report.md, t04-autopilot-landing)
 
 ## Current checkpoint
 - Completed tasks: P01-T01..T04, P02-T01..T04, P03-T01..T04, P04-T01..T04 (Phase 04 COMPLETE)

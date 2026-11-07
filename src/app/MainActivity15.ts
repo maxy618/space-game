@@ -69,19 +69,18 @@ let DYNAMIC_ZOOM = false;
 // Project-native player feature: the camera view scales smoothly with ship speed
 // so the player FEELS speed. Speed/pause/manual-zoom are debug-only (see main.ts).
 // Visible-space factor: stopped = 0.7x (closer), medium speed = 1.0x (exactly the
-// original default view), max speed = 1.3x (farther). Interpolated linearly in
+// original default view), max speed = 2.2x (farther). Interpolated linearly in
 // between and smoothed per frame. The ship always stays clearly visible.
 const SPEED_ZOOM_NEAR = 0.7; // visible-space factor when the ship is stopped
-const SPEED_ZOOM_FAR = 1.7; // visible-space factor at CRAFT_SPEED_LIMIT (user preference: keep pushing farther, tune 0.7..1.7+)
+const SPEED_ZOOM_FAR = 2.2; // visible-space factor at CRAFT_SPEED_LIMIT (user 2026-11-07: 1.3-1.5x more zoom-out at max speed than the previous 1.7)
 const SPEED_ZOOM_REF = 800; // px/s treated as "medium" speed = exactly the original view
 let SPEED_ZOOM_ENABLED = true;
 
 // Overall camera distance multiplier (user request 2026-11-07): the view was
 // too close on phones — high-res and regular resolution alike — even at rest.
-// 1.4x farther than before at every speed ("1.5x or slightly less to be ideal").
-// Applied to the base zoom everywhere, so relative velocity-zoom behavior is
-// unchanged, only the whole picture moves back.
-const CAMERA_DISTANCE = 1.4;
+// 1.5x farther than before at every speed. Applied to the base zoom
+// everywhere, so relative velocity-zoom behavior is unchanged.
+const CAMERA_DISTANCE = 1.5;
 
 let playSpeed = 1;
 let camZoom = DEFAULT_CAMERA_ZOOM;

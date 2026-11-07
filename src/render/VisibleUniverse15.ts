@@ -79,6 +79,9 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
     drawSpacecraft(ship: Spacecraft) {
         const context = this.context;
         const helper = this.helper;
+        const thrustMag = ship.thrust.mag();
+        const powered = thrustMag > 1e-6; // thrust vector magnitude (0..1), from the stick
+        const shipSpeed = ship.velocity.mag();
         const oldHelperX = helper.x;
         const oldHelperY = helper.y;
         helper.x -= ship.pos.x;
@@ -98,12 +101,42 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         context.strokeStyle = ship.transit ? Colors.Black : Colors.White;
         context.lineWidth = 2 / this.zoom;
         context.stroke(this.spaceshipPath);
-        // draw thrust
-        if (ship.thrust.x !== 0 || ship.thrust.y !== 0) {
-            context.strokeStyle = "#FF8800";
-            context.lineJoin = "round";
-            context.lineWidth = 2 / this.zoom;
-            context.stroke(this.thrustPath);
+        // Dynamic exhaust flame (user request 2026-11-07): the flame scales with
+        // how hard you press (thrust magnitude) and grows longer at high speed —
+        // a teardrop that stretches, with layered opacity bands (core→edge) and
+        // a pulsing length. No longer a tiny triangle outline.
+        if (powered) {
+            const exhaustFlicker = 1 + 0.22 * Math.sin(performance.now() / 45);
+            const exhaustLen = (10 + thrustMag * 26 + shipSpeed / 5000 * 18) * exhaustFlicker;
+            const exhaustHalf = 3 + thrustMag * 3.5;
+            const exhaustLap = (thrustMag + shipSpeed / 5000) / 2;
+            context.save();
+            // exhaust particles trail behind the nozzle as they drift — short dashes
+            context.strokeStyle = "rgba(255,255,255," + (0.5 + exhaustLap * 0.4) + ")";
+            context.lineWidth = 1 / this.zoom;
+            context.lineCap = "round";
+            context.beginPath();
+            for (let i = 0; i < 5; i++) {
+                const trail = 0.35 + i * 0.3;
+                const spread = (i % 2 === 0 ? 1.6 : -1.3) * trail;
+                context.moveTo(-4, (i % 2 === 0 ? -2 : 2) * (1 + trail * 0.6));
+                context.lineTo(-(4 + exhaustLen * trail * 0.8), spread);
+            }
+            context.stroke();
+            // core + hot edge bands (fill, not outline — reads as flame)
+            const drawBand = (len: number, half: number, color: string) => {
+                context.fillStyle = color;
+                context.beginPath();
+                context.moveTo(-3, -half);
+                context.quadraticCurveTo(-3 - len * 0.6, 0, -3, half);
+                context.lineTo(-3, -half);
+                context.fill();
+            };
+            const lapT = Math.min(1, Math.max(0, exhaustLap));
+            drawBand(exhaustLen, exhaustHalf, "rgba(255,255,255," + (0.25 + lapT * 0.5) + ")");
+            drawBand(exhaustLen * 0.62, exhaustHalf * 0.62, "rgba(255,200,160," + (0.35 + lapT * 0.45) + ")");
+            drawBand(exhaustLen * 0.36, exhaustHalf * 0.38, "rgba(255,240,220," + (0.5 + lapT * 0.45) + ")");
+            context.restore();
         }
         context.restore();
         helper.x = oldHelperX;

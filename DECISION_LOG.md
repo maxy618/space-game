@@ -28,3 +28,20 @@ Use `docs/templates/DECISION_TEMPLATE.md` for non-trivial decisions. Record cont
 - **Trade-offs:** Slight extra code now in exchange for algorithm parity evidence; the module must be kept clearly non-player-facing until replaced.
 - **Tests:** Deterministic unit tests of the strategy state machine (CHASING/APPROACHING/LANDING/LAUNCHING) in vitest, not player-facing.
 - **Revisit condition:** When the project-native autopilot phase starts, this module is superseded or removed.
+
+## D-004 — Camera tuning, dynamic exhaust, and future optical effects (2026-11-07)
+
+- **Context:** Playtest feedback on phones: (a) the view felt too close even at rest; (b) at max speed the zoom-out should be ~1.3–1.5× stronger than before; (c) the exhaust was a thin orange triangle outline that did not respond to throttle; (d) space-distortion effects at the frame edges are wanted but not urgent.
+- **Decision:**
+  1. `CAMERA_DISTANCE = 1.5` (from 1.4) — applies at every speed.
+  2. `SPEED_ZOOM_FAR = 2.2` (from 1.7) — extra 1.3× zoom-out at max speed, smooth curve intact.
+  3. Exhaust is now a dynamic teardrop: length scales with throttle (stick deflection) and ship speed, three filled opacity bands (white → warm → pale core), 45 ms flicker, plus trailing spark dashes. No bloom/RTX yet (Phase 08 scope).
+  4. **Future backlog (recorded, not scheduled):** speed-scaled edge space-distortion (radial lensing toward max speed, stronger at higher velocity); bloom/RTX-quality lighting on the exhaust and celestial bodies (Phase 08); exhaust complexity tiers for low-end devices.
+- **Evidence:** `EVIDENCE/PHASE_05/P05-T02/flame-full-speed.png`, `flame-partial.png`.
+
+## D-005 — Space-distortion requirement analysis (context for D-004 item 4)
+
+- **Context:** The user asked for velocity-scaled space distortion at frame edges. Not urgent.
+- **Decision:** Record requirement; implement when Phase 08 (optics/postFX) opens, with blend-in/out and reduced-motion behavior per the charter. Current 2D canvas has no post-processing pass, so a radial screen-space effect will need the render-graph work of Phase 08.
+- **Revisit condition:** Phase 08 or any render-graph change that adds a post pass.
+
