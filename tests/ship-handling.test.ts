@@ -1,9 +1,11 @@
 /**
- * P04-T02 ship handling & tuning tests.
+ * P04-T02 ship handling & tuning tests (updated 2026-11-08: engine-only caps).
  *
  * Handling contract (all units: meters, seconds):
- *  - MAIN_ENGINE_ACCEL = 1000 m/s^2 at full thrust (thrust scales linearly)
- *  - CRAFT_SPEED_LIMIT = 5000 m/s hard cap, no drag (inertia preserved)
+ *  - engineAccel = 1000 m/s^2 at full thrust (thrust scales linearly)
+ *  - engineSpeedCap = 4000 m/s: the ENGINE can never push speed past it —
+ *    it is NOT a total-velocity cap (gravity may exceed it, existing speed
+ *    is never reduced); no drag (inertia preserved)
  *  - brake applies the same -1000 m/s^2 along retrograde
  *  - motion is frame-rate independent: equal simulated time at different
  *    step sizes gives identical velocity (the step loop integrates dt)
@@ -65,7 +67,7 @@ describe("P04-T02 thrust & cruise", () => {
         expect(v).toBeLessThan(UniverseConst.CRAFT_SPEED_LIMIT);
     });
 
-    it("hits the 5000 cap and holds it (starts near the cap)", () => {
+    it("hits the 4000 engine cap and holds it (starts near the cap)", () => {
         // NOTE: each assert uses a fresh universe from the same seed, because
         // runSteps restarts its wall clock — continuity across calls would
         // produce a negative dt on the first step of the second call.
@@ -74,11 +76,22 @@ describe("P04-T02 thrust & cruise", () => {
             isolateFromGravity(u);
             // Start just below the cap: reaching it takes ~0.1 s, so the run
             // stays far from the ringfence (200 000 m) that would zero velocity.
-            u.ship.velocity.x = 4900;
+            u.ship.velocity.x = 3900;
             u.ship.velocity.y = 0;
             runSteps(u, steps, 16, fullThrust);
             expect(u.ship.velocity.mag()).toBeCloseTo(UniverseConst.CRAFT_SPEED_LIMIT, 0);
         }
+    });
+
+    it("above the engine cap, the regular engine adds nothing and removes nothing", () => {
+        // start ABOVE the cap (as after a gravity slingshot or released boost):
+        // full regular thrust must not bleed the velocity nor add to it
+        const u = makeUniverse(777n);
+        isolateFromGravity(u);
+        u.ship.velocity.x = 4900;
+        u.ship.velocity.y = 0;
+        runSteps(u, 150, 16, fullThrust);
+        expect(u.ship.velocity.mag()).toBeCloseTo(4900, 0);
     });
 
     it("half thrust accelerates at half rate", () => {
@@ -167,7 +180,7 @@ describe("P04-T02 frame-rate independence", () => {
         const b = makeUniverse(777n);
         for (const u of [a, b]) {
             isolateFromGravity(u);
-            u.ship.velocity.x = 4900;
+            u.ship.velocity.x = 3900;
             u.ship.velocity.y = 0;
         }
         runSteps(a, 60, 16, fullThrust); // ~0.96 s — cruises at the cap

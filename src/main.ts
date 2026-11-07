@@ -25,7 +25,6 @@ import {
     getIsBaklava,
     MainActivity15,
     RandomSeedType,
-    setBoostEngaged,
     setCamZoom,
     setDynamicZoom,
     setFixedRandomSeed,
@@ -503,7 +502,6 @@ function syncBoost() {
     const holdEngaged = boostHeld && (performance.now() - pressStartedAt) > 300 && atCap;
     const engaged = holdEngaged || (boostToggleOn && atCap);
     boostButton.classList.toggle("engaged", engaged);
-    setBoostEngaged(engaged);
     activity.setBoost(engaged);
 }
 function pressBoost() {

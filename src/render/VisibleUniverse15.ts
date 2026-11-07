@@ -37,9 +37,11 @@ import { Namer15 } from "../core/Namer15";
 import { createPolygon, drawPolygon, parseSvgPathData } from "../core/PathTools";
 import { Constraint, Container, Simulator } from "../core/Physics";
 import { chooseRandom } from "../core/Randomness";
-import { Asteroid, Landing, Planet, Spacecraft, Spark, SparkStyle, Star, StarClass, StarClasses, UniverseConst } from "../universe/Universe";
+import { Asteroid, Landing, Planet, Spacecraft, Spark, SparkStyle, Star, StarClass, StarClasses, Track, UniverseConst } from "../universe/Universe";
+import { starHeatStep, STAR_CORONA_FACTOR } from "../universe/StarHeat";
 import { Landing15, Spacecraft15 } from "../universe/Universe15";
 import { Vec2, Vec2_angle, Vec2_copy, Vec2_makeWithAngleMag } from "../core/Vec2";
+import { clamp } from "../core/Maths";
 import { VisibleUniverse, ZoomedDrawScope } from "./VisibleUniverse";
 
 const solveSimulator = Simulator.prototype.solveAll;
@@ -68,7 +70,9 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             r: 22000 + next() * 26000,
             rot: next() * PI * 2,
             color,
-            alpha: 0.05 + 0.03 * (i % 2) + next() * 0.03,
+            // slightly more visible (user 2026-11-08) — soft edges via
+            // shadow-blur halo in drawNebula carry the rest of the lift
+            alpha: 0.08 + 0.04 * (i % 2) + next() * 0.04,
             rr: Array.from({ length: 12 }, () => 0.65 + next() * 0.6),
         }));
     })();
@@ -161,6 +165,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         const top = helper.y;
         const right = left + helper.width;
         const bottom = top + helper.height;
+        const dpr = window.devicePixelRatio || 1;
         for (const blob of this.nebulaBlobs) {
             // cull blobs far outside the visible world rect
             if (blob.x + blob.r < left || blob.x - blob.r > right
@@ -168,20 +173,34 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             context.save();
             context.translate(blob.x, blob.y);
             context.rotate(blob.rot);
-            context.fillStyle = blob.color;
-            context.globalAlpha = blob.alpha;
-            context.beginPath();
+            // Soft-edged nebula (user 2026-11-08): a shadow-blur halo under
+            // a low-alpha core replaces the hard polygon fill. Canvas
+            // shadows ignore the world transform, so the blur is set in
+            // device px and stays proportional on screen at every zoom.
+            const blurPx = clamp(blob.r * this.zoom * dpr * 0.12, 12, 140);
             const steps = blob.rr.length;
-            for (let i = 0; i <= steps; i++) {
-                const a = (i / steps) * PI * 2;
-                const rr = blob.r * blob.rr[i % steps];
-                const px = Math.cos(a) * rr;
-                const py = Math.sin(a) * rr * 0.72; // squash → filament feel
-                if (i === 0) context.moveTo(px, py);
-                else context.lineTo(px, py);
-            }
-            context.closePath();
-            context.fill();
+            const tracePath = () => {
+                context.beginPath();
+                for (let i = 0; i <= steps; i++) {
+                    const a = (i / steps) * PI * 2;
+                    const rr = blob.r * blob.rr[i % steps];
+                    const px = Math.cos(a) * rr;
+                    const py = Math.sin(a) * rr * 0.72; // squash → filament feel
+                    if (i === 0) context.moveTo(px, py);
+                    else context.lineTo(px, py);
+                }
+                context.closePath();
+            };
+            context.shadowColor = blob.color;
+            context.shadowBlur = blurPx;
+            context.fillStyle = blob.color;
+            context.globalAlpha = blob.alpha * 0.7;
+            tracePath();
+            context.fill(); // halo pass (blurred)
+            context.shadowBlur = 0;
+            context.globalAlpha = blob.alpha * 0.55;
+            tracePath();
+            context.fill(); // core pass (crisp, translucent)
             context.restore();
         }
         context.globalAlpha = 1;
@@ -254,8 +273,20 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         // draw the ship
         context.fillStyle = Colors.Eigengrau;
         context.fill(this.spaceshipPath); // fauxpaque
+        // Zoomed-out readability (user 2026-11-08): the hairline outline is
+        // constant in screen px, which in world meters balloons as the camera
+        // zooms out — it eventually drowns the dark hull fill and the ship
+        // reads as an excessively bright dot. Cap the outline in world units
+        // and add a faint halo when the hull goes sub-pixel, so the ship
+        // stays findable without becoming a beacon.
         context.strokeStyle = ship.transit ? Colors.Black : Colors.White;
-        context.lineWidth = 1.3 / this.zoom; // user 2026-11-08: 1.5x thinner hull outline
+        context.lineWidth = Math.min(1.3 / this.zoom, 2.4); // user 2026-11-08: 1.5x thinner hull outline
+        if (this.zoom < 0.5) {
+            context.fillStyle = "rgba(183,183,255,0.16)";
+            context.beginPath();
+            context.arc(0, 0, ship.radius * 2.2, 0, PI * 2);
+            context.fill();
+        }
         context.stroke(this.spaceshipPath);
         // Dynamic exhaust flame (user request 2026-11-07, refined "beautiful
         // and alive"): a multi-layer procedural flame — turbulent teardrop with
@@ -565,7 +596,133 @@ export class VisibleUniverse15 extends VisibleUniverse {
         this.follow = this.ship;
     }
 
+    /**
+     * Stellar hazard (user 2026-11-08): advance the ship's heat against the
+     * system star. Danger zones scale with the star radius (StarHeat.ts);
+     * destruction at critical heating or inside the inner boundary.
+     */
+    updateStarHazard(dt: number) {
+        const ship = this.ship;
+        const dist = ship.pos.distance(this.star.pos);
+        const res = starHeatStep(ship.heat, dist, this.star.radius, dt, ship.profile.heatTolerance, ship.profile.coolRate);
+        ship.heat = res.heat;
+        if (res.destroy) this.destroyShip();
+    }
+
+    /**
+     * Ship destruction (user 2026-11-08): flash + particles + debris at the
+     * death site, then a respawn equivalent to the initial spawn. The
+     * universe, sim time and explored planets are untouched. Works through
+     * the ship profile contract, not the placeholder hull model, so future
+     * ships reuse it as-is (profile.destructionScale, profile.heatTolerance).
+     */
+    destroyShip() {
+        const ship = this.ship as Spacecraft15;
+        const scale = ship.profile.destructionScale;
+
+        // drop any landing constraint before teleporting
+        if (ship.landing !== null) {
+            this.removeConstraint(ship.landing);
+            ship.landing.ship = null;
+            ship.landing = null;
+        }
+
+        // flash: three expanding-brightness white rings at the death site
+        for (let i = 0; i < 3; i++) {
+            const flash = new Spark(
+                0.5 + i * 0.3,
+                false,
+                0,
+                SparkStyle.RING,
+                "rgba(255,255,255," + (0.85 - i * 0.22) + ")",
+                24 + i * 56
+            );
+            Vec2_copy(flash.pos, ship.pos);
+            Vec2_copy(flash.opos, ship.pos);
+            this.addEntity(flash);
+        }
+
+        // hot particles: blast outward, inherit part of the ship's momentum
+        const particles = Math.round(36 * scale);
+        const palette = ["#FFFFFF", "#FFD080", "#FF9040", "#FF5533"];
+        for (let i = 0; i < particles; i++) {
+            const spark = new Spark(
+                this.rng.minmax(0.6, 2.2),
+                false,
+                0,
+                SparkStyle.DOT,
+                palette[i % palette.length],
+                this.rng.minmax(1.5, 4.5)
+            );
+            Vec2_copy(spark.pos, ship.pos);
+            Vec2_copy(spark.opos, ship.pos);
+            Vec2_makeWithAngleMag(
+                spark.velocity,
+                this.rng.minmax(0, 2 * PI),
+                this.rng.minmax(40, 750)
+            );
+            spark.velocity.x += ship.velocity.x * 0.4;
+            spark.velocity.y += ship.velocity.y * 0.4;
+            this.addEntity(spark);
+        }
+
+        // debris chunks: slower, darker, longer-lived tumbling hull fragments
+        const chunks = Math.round(10 * scale);
+        for (let i = 0; i < chunks; i++) {
+            const spark = new Spark(
+                this.rng.minmax(1.5, 3.5),
+                false,
+                0,
+                SparkStyle.LINE,
+                "#8A7D72",
+                3
+            );
+            Vec2_copy(spark.pos, ship.pos);
+            Vec2_makeWithAngleMag(
+                spark.opos,
+                this.rng.minmax(0, 2 * PI),
+                this.rng.minmax(4, 14)
+            ).addSelf(spark.pos);
+            Vec2_makeWithAngleMag(
+                spark.velocity,
+                this.rng.minmax(0, 2 * PI),
+                this.rng.minmax(30, 300)
+            );
+            spark.velocity.x += ship.velocity.x * 0.3;
+            spark.velocity.y += ship.velocity.y * 0.3;
+            this.addEntity(spark);
+        }
+
+        // respawn: equivalent to the initial spawn (same rng stream, same
+        // orbit band and random heading). Explored planets, sim time and the
+        // universe state persist; only the ship starts over.
+        Vec2_makeWithAngleMag(
+            ship.pos,
+            this.rng.float() * PI * 2,
+            this.rng.minmax(UniverseConst.PLANET_ORBIT_RANGE_MIN, UniverseConst.PLANET_ORBIT_RANGE_MAX)
+        ).addSelf(this.star.pos);
+        // position-based dynamics: velocity is re-derived from (pos − opos)/dt
+        // each step, so the teleport must sync opos or the ship would gain a
+        // phantom megameter-per-second velocity on the respawn frame
+        Vec2_copy(ship.opos, ship.pos);
+        ship.angle = this.rng.float() * PI * 2;
+        ship.velocity.x = 0;
+        ship.velocity.y = 0;
+        ship.thrust.x = 0;
+        ship.thrust.y = 0;
+        ship.boost = false;
+        ship.thrustMultiplier = 1;
+        ship.heat = 0;
+        ship.launchClock = 0;
+        ship.transit = false;
+        ship.track = new Track();
+    }
+
     solveAll(dt: number, constraints: Set<Constraint>) {
+        // Stellar hazard (user 2026-11-08): corona heating, destruction and
+        // respawn run before any collision logic each step.
+        this.updateStarHazard(dt);
+
         if (this.ship.landing === null) {
             const planet = this.closestPlanet();
 

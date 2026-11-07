@@ -37,6 +37,7 @@ import { Body, Constraint, Container, Entity, Removable, Simulator } from "../co
 import { chooseRandom } from "../core/Randomness";
 import { Vec2, Vec2_angle, Vec2_copy, Vec2_makeWithAngleMag, Vec2_makeWithAngleMagAdd } from "../core/Vec2";
 import { LOG } from "../core/Debug";
+import { DEFAULT_SHIP_PROFILE } from "./ShipProfile";
 
 const PI = Math.PI;
 const abs = Math.abs;
@@ -71,9 +72,16 @@ export const enum UniverseConst {
     SPACECRAFT_MASS = 10,
 
     // Base cruise cap. Boost raises the cap to CRAFT_SPEED_LIMIT_BOOST while
-    // engaged (user 2026-11-08).
+    // engaged (user 2026-11-08). Both are ENGINE caps, not total-velocity
+    // caps — see Spacecraft.update.
     CRAFT_SPEED_LIMIT = 4_000,
     CRAFT_SPEED_LIMIT_BOOST = 6_000,
+
+    // Ship-only gravity strengthen (user 2026-11-08): the raw Newton term
+    // felt weightless at flight speed. The SHIP feels 4x stronger wells
+    // (close flybys bend the trajectory), while asteroids keep the original
+    // Keplerian calibration so belts and orbits are unchanged.
+    SHIP_GRAVITY_MULTIPLIER = 4,
     MAIN_ENGINE_ACCEL = 1000, // thrust effect, pixels per second squared
     LAUNCH_MECO = 2, // how long to suspend gravity when launching
 
@@ -377,10 +385,11 @@ export class Universe extends Simulator {
                 this.now > this.ship.launchClock + UniverseConst.LAUNCH_MECO
             ) { // within MECO sec of launch, no gravity at all
                 // simulate gravity: $ f_g = G * m1 * m2 * 1/d^2 $
+                // (× SHIP_GRAVITY_MULTIPLIER — ship-only, see UniverseConst)
                 Vec2_makeWithAngleMagAdd(
                     this.ship.velocity,
                     Vec2_angle(planet.pos, this.ship.pos),
-                    dt * UniverseConst.GRAVITATION * (this.ship.mass * planet.mass) / (d * d)
+                    dt * UniverseConst.GRAVITATION * UniverseConst.SHIP_GRAVITY_MULTIPLIER * (this.ship.mass * planet.mass) / (d * d)
                 );
             }
         }
@@ -736,14 +745,20 @@ export class Spacecraft extends Body {
 
     transit = false;
 
-    /** Boost burner engaged (user 2026-11-08): raises the speed cap from
-     * 4000 to 6000 while held. Set by the boost button in main.ts. */
+    /** Boost burner engaged (user 2026-11-08): raises the ENGINE cap from
+     * engineSpeedCap to boostSpeedCap while held. Set by the boost button
+     * in main.ts. It says nothing about the ship's total velocity. */
     boost = false;
-    /** Cooldown latch (user 2026-11-08): after release the 6000 cap lingers
-     * until speed drops below 4500 — set only by an engaged burner. */
-    boostLatched = false;
-    /** Thrust multiplier (boost = 1.5). Applied in update(). */
+    /** Thrust multiplier while boosting (from the ship profile). Applied
+     * in update(). */
     thrustMultiplier = 1;
+
+    /** Data-driven ship characteristics (user 2026-11-08): engine caps,
+     * boost behavior, heat resistance, glow/destruction parameters. */
+    profile = DEFAULT_SHIP_PROFILE;
+
+    /** Stellar heat accumulator 0..1 (StarHeat.ts); destroys at 1. */
+    heat = 0;
 
     track = new Track();
 
@@ -759,7 +774,7 @@ export class Spacecraft extends Body {
         // check for thrusters
         const thrustMag = this.thrust.mag();
         if (thrustMag > 0) {
-            let deltaV = UniverseConst.MAIN_ENGINE_ACCEL * dt * this.thrustMultiplier;
+            let deltaV = this.profile.engineAccel * dt * this.thrustMultiplier;
             if (SCALED_THRUST) deltaV *= clamp(thrustMag, 0, 1);
 
             if (this.landing === null) {
@@ -779,28 +794,28 @@ export class Spacecraft extends Body {
                 }
             }
 
+            // ENGINE-ONLY speed caps (user 2026-11-08). The caps limit what
+            // the ENGINE can add — never the ship's total velocity:
+            //   - regular engine: profile.engineSpeedCap (4000)
+            //   - boost burner:   profile.boostSpeedCap (6000)
+            // Gravity (already applied this step in Universe.updateAll) may
+            // accelerate the ship past both caps and is NEVER cancelled:
+            // the clamp keeps the greater of the pre-burn speed and the
+            // cap, so releasing boost never bleeds speed, braking works
+            // normally (it lowers speed), and gravity slingshots persist.
+            const cap = this.boost ? this.profile.boostSpeedCap : this.profile.engineSpeedCap;
+            const speedBefore = this.velocity.mag();
             // this is it. impart thrust to the ship.
             // note that we always thrust in the forward direction
             Vec2_makeWithAngleMagAdd(this.velocity, this.angle, deltaV);
+            const speedAfter = this.velocity.mag();
+            if (speedAfter > cap && speedAfter > speedBefore) {
+                const scale = Math.max(speedBefore, cap) / speedAfter;
+                this.velocity.x *= scale;
+                this.velocity.y *= scale;
+            }
         } else {
             if (this.launchClock !== 0) this.launchClock = 0;
-        }
-
-        // apply global speed limit (boost raises it 4000 → 6000; after
-        // release the cap lingers until cooled below 4500 — no instant snap)
-        if (this.boost) this.boostLatched = true;
-        else if (this.velocity.mag() < UniverseConst.CRAFT_SPEED_LIMIT_BOOST - 1500) this.boostLatched = false;
-        const speedLimit = (this.boost || this.boostLatched) ? UniverseConst.CRAFT_SPEED_LIMIT_BOOST : UniverseConst.CRAFT_SPEED_LIMIT;
-        if (this.velocity.mag() > speedLimit) {
-            // coasting down from boost: brake-drag 600 m/s² toward the cap
-            if (!this.boost && this.boostLatched) {
-                const over = this.velocity.mag() - speedLimit;
-                const decel = 1200 * dt; // brake drag outruns full engine thrust
-                if (over <= decel) Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
-                else Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), this.velocity.mag() - decel);
-            } else {
-                Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
-            }
         }
 
         super.update(sim, dt);

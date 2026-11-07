@@ -6,6 +6,17 @@
 **Last verified commit:** f1908f2 (P05-T04)
 **Latest QA evidence:** EVIDENCE/PHASE_05/P05-T04/ (completion-report.md, t04-autopilot-landing)
 
+## Physics/visuals fix round (2026-11-08, user brief)
+- ENGINE-ONLY speed caps: Spacecraft clamps each burn to max(pre-burn speed, cap) — regular engine 4000, boost 6000; total velocity is never reduced by the cap, gravity can exceed both. boostLatched drag removed (it bled speed on boost release — the reported bug).
+- ShipProfile.ts: data-driven ship config (engineAccel, caps, boost multiplier, heat tolerance, glow color, destruction scale) — architecture for future ships, no hangar.
+- Gravity ×4 for the ship only (UniverseConst.SHIP_GRAVITY_MULTIPLIER); asteroids/orbits keep Kepler calibration. Live-measured free-fall ~220 px/s² at 11 km from the seed star.
+- Fisheye now velocity-driven (Camera.fisheyeTargetForSpeed): 0 at ≤6000, log curve above, subtle 0.6 target at 30000; warp mapping/orientation untouched.
+- Boost neon edge glow (#boostGlow overlay) while boost AND thrust>0; verified release/boost-off/respawn drop it; separate from the fisheye.
+- Star hazard (StarHeat.ts + VisibleUniverse15): corona 1.9R heat start, kill 1.45R, quadratic proximity rate, cooldown 0.3/s; destruction = flash rings + particles + debris + respawn = initial spawn (universe/explored preserved, opos synced to avoid phantom velocity). Verified live twice.
+- Trail: single-path translucent stroke rgba(80,255,140,0.35) — culling gaps (dotted look) removed. Ship outline capped at 2.4 m + faint halo when the hull is sub-pixel. Nebula: shadow-blur soft edges, alpha 0.08–0.16.
+- Pause button 56px (= boost button; user override of the 44px decision).
+- Tests: 120/120 (new: engine-limits 7, star-hazard 8, fisheye-curve 3; ship-handling updated to engine-only caps). Build green. Evidence: EVIDENCE/fix-round/.
+
 ## Current checkpoint
 - Completed tasks: P01-T01..T04, P02-T01..T04, P03-T01..T04, P04-T01..T04 (Phase 04 COMPLETE)
 - In progress: none

@@ -29,15 +29,10 @@
  */
 
 import { drawFlag } from "../core/Flag15";
-import { clamp } from "../core/Maths";
-import { Body, Simulator } from "../core/Physics";
 import { Fuse } from "../core/Physics15";
-import { Landing, Planet, SCALED_THRUST, Spacecraft, UniverseConst } from "./Universe";
-import { Removable } from "../core/Physics";
-import { Vec2_makeWithAngleMag, Vec2_makeWithAngleMagAdd } from "../core/Vec2";
+import { Landing, Planet, Spacecraft } from "./Universe";
+import { Removable, Simulator } from "../core/Physics";
 import type { Autopilot15 } from "../sim/Autopilot15";
-
-const updateBody = Body.prototype.update;
 
 const enum Universe15Const {
     LANDING_REMOVAL_TIME = 60 * 15 // 15 min of simulation time
@@ -63,55 +58,12 @@ export class Landing15 extends Landing implements Removable {
     }
 }
 
+/**
+ * V-era spacecraft. All physics (thrust, engine-only speed caps, boost)
+ * lives in the base Spacecraft and is data-driven by the ship profile
+ * (ShipProfile.ts) — this subclass only wires the autopilot and the
+ * landing flavor text.
+ */
 export class Spacecraft15 extends Spacecraft {
     autopilot: Autopilot15 | null = null;
-
-    update(sim: Simulator, dt: number) {
-        // check for thrusters
-        const thrustMag = this.thrust.mag();
-        if (thrustMag > 0) {
-            let deltaV = UniverseConst.MAIN_ENGINE_ACCEL * dt * this.thrustMultiplier;
-            if (SCALED_THRUST) deltaV *= clamp(thrustMag, 0, 1);
-
-            if (this.landing !== null) {
-                if (this.launchClock === 0) this.launchClock = sim.now + 1; /* @@@ TODO extract */
-
-                if (sim.now > this.launchClock) {
-                    // detach from landing site
-                    this.landing.ship = null;
-                    this.landing = null;
-                } else {
-                    deltaV = 0;
-                }
-            }
-
-            // this is it. impart thrust to the ship.
-            // note that we always thrust in the forward direction
-            Vec2_makeWithAngleMagAdd(this.velocity, this.angle, deltaV);
-        } else {
-            if (this.launchClock !== 0) this.launchClock = 0;
-        }
-
-        // apply global speed limit (boost raises it 4000 → 6000; after
-        // release the boost cap lingers until you cool below 4500 — no
-        // instant snap, user 2026-11-08). boostLatched is set only by the
-        // engaged burner, never by raw speed (test-reachable above cap).
-        if (this.boost) this.boostLatched = true;
-        else if (this.velocity.mag() < UniverseConst.CRAFT_SPEED_LIMIT_BOOST - 1500) this.boostLatched = false;
-        const speedLimit = (this.boost || this.boostLatched) ? UniverseConst.CRAFT_SPEED_LIMIT_BOOST : UniverseConst.CRAFT_SPEED_LIMIT;
-        if (this.velocity.mag() > speedLimit) {
-            // coasting down from boost: brake-drag 600 m/s² toward the cap
-            // (physical decay, not an instant snap — user 2026-11-08)
-        if (!this.boost && this.boostLatched) {
-                const over = this.velocity.mag() - speedLimit;
-                const decel = 1200 * dt; // brake drag outruns full engine thrust
-                if (over <= decel) Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
-                else Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), this.velocity.mag() - decel);
-            } else {
-                Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
-            }
-        }
-
-        updateBody.call(this, sim, dt);
-    }
 }

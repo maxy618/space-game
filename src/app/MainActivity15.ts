@@ -45,7 +45,7 @@ import { FlightStick } from "../input/FlightStick";
 import { InputActionLayer } from "../input/InputActions";
 import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
-import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M, decayKick, kickMetersForScreenPx } from "../camera/Camera";
+import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, fisheyeTargetForSpeed, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M, decayKick, kickMetersForScreenPx } from "../camera/Camera";
 import { newRandom } from "../core/RandomKt";
 
 const TEST_UNIVERSE = false
@@ -84,10 +84,9 @@ let SPEED_ZOOM_ENABLED = true;
 // everywhere, so relative velocity-zoom behavior is unchanged.
 const CAMERA_DISTANCE = 1.5;
 
-// Fisheye warp-boost edge distortion strength (user 2026-11-08). 0 = off,
-// 1 = full. Driven by boost engagement, applied as radial screen warp per
-// frame in the render layer below (barrel toward edges, center stays sharp).
-let FISHEYE = 0;
+// Fisheye warp is now velocity-driven (user 2026-11-08) — see Spaaaace.
+// The boost burner instead gets its own dedicated HUD effect: a neon edge
+// glow (below), keyed to actual boost thrust, not to speed.
 
 let playSpeed = 1;
 let camZoom = DEFAULT_CAMERA_ZOOM;
@@ -211,6 +210,9 @@ function Telemetry(universe: VisibleUniverse, autopilot: Autopilot15,
         if (bottomString.length > 0) bottomString += "\n";
         bottomString += "THR: " + (ship.thrust.mag() * 100).toFixed(0) + "%\n";
         bottomString += "POS: " + ship.pos.str() + "\n";
+        // stellar heat (user 2026-11-08): only shown while the corona risk
+        // is nonzero, so normal flight is not cluttered
+        if (ship.heat > 0.005) bottomString += "HEAT: " + Math.round(ship.heat * 100) + "%\n";
         bottomString += "VEL: " + ship.velocity.mag().toFixed(0);
         bottomTextNode.textContent = bottomString;
     }
@@ -305,9 +307,14 @@ function Spaaaace(
         // Smooth fisheye strength toward its target; the world renders into
         // an offscreen canvas while the warp is active, then gets tiled back
         // with a radial barrel mapping (center sharp, edges warped).
+        //
+        // Speed-driven (user 2026-11-08): keyed to the ship's ACTUAL total
+        // velocity, never to the boost button. Curve in Camera.ts.
+        let fisheyeTarget = 0;
         if (!reducedMotion) {
-            if (FISHEYE > fisheyeSmooth) fisheyeSmooth = Math.min(FISHEYE, fisheyeSmooth + u.dt * 2.2);
-            else fisheyeSmooth = Math.max(FISHEYE, fisheyeSmooth - u.dt * 3.0);
+            fisheyeTarget = fisheyeTargetForSpeed(u.ship.velocity.mag(), UniverseConst.CRAFT_SPEED_LIMIT_BOOST);
+            if (fisheyeTarget > fisheyeSmooth) fisheyeSmooth = Math.min(fisheyeTarget, fisheyeSmooth + u.dt * 2.2);
+            else fisheyeSmooth = Math.max(fisheyeTarget, fisheyeSmooth - u.dt * 3.0);
         } else {
             fisheyeSmooth = 0;
         }
@@ -589,11 +596,12 @@ export function setSpeedZoomEnabled(enabled: boolean) {
     SPEED_ZOOM_ENABLED = enabled;
 }
 
-/** Fisheye warp-boost strength 0..1 (0.02 handled smooth inside Spaaaace). */
+/** (Removed) boost-driven fisheye hook — fisheye is velocity-based now. */
 export function setBoostEngaged(engaged: boolean) {
-    // Gating: boost only engages at/above base cap; main.ts enforces the UI
-    // rule (button disabled below cap), this keeps the engine honest.
-    FISHEYE = engaged ? 1 : 0;
+    // Kept as a no-op for API stability; the fisheye no longer reads the
+    // boost button (user 2026-11-08). The burner's own HUD effect is the
+    // boostGlow overlay below.
+    void engaged;
 }
 
 export function setIsBaklava(baklava: boolean) {    if (baklava != isBaklava) {
@@ -716,10 +724,29 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         inputLayer.consumeEdge("landLaunch");
     }
 
-    // Boost control (user 2026-11-08): main.ts flips ship.boost + multiplier.
+    // Boost control (user 2026-11-08): main.ts flips ship.boost + multiplier
+    // (both data-driven from the ship profile).
     function setBoost(engaged: boolean) {
         ship.boost = engaged;
-        ship.thrustMultiplier = engaged ? 1.5 : 1;
+        ship.thrustMultiplier = engaged ? ship.profile.boostAccelMultiplier : 1;
+    }
+
+    // Boost burner screen glow (user 2026-11-08): a subtle neon edge light in
+    // the burner's own color (ship profile). Shown ONLY while boost thrust is
+    // actually being applied — burner engaged AND the engine burning — never
+    // merely because boost is enabled. Pure HUD overlay: separate from the
+    // speed-based fisheye, never intercepts input, fades smoothly both ways,
+    // and cannot get stuck (it re-evaluates from live ship state every frame:
+    // releasing thrust, disabling boost, braking, hitting the cap or a
+    // respawn all drop it naturally).
+    const boostGlow = document.getElementById("boostGlow");
+    if (boostGlow) boostGlow.style.setProperty("--boost-glow-rgb", ship.profile.boostGlowColor);
+    function updateBoostGlow() {
+        if (!boostGlow) return;
+        const burning = ship.boost && ship.thrust.mag() > 0.01;
+        if (burning !== boostGlow.classList.contains("active")) {
+            boostGlow.classList.toggle("active", burning);
+        }
     }
 
     // Debug/testing hook (debug-only, #debug=1): exposes entity layout so
@@ -734,6 +761,8 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 vy: ship.velocity.y,
                 angle: ship.angle,
                 boost: ship.boost,
+                thrustMag: ship.thrust.mag(),
+                heat: ship.heat,
             },
             asteroids: universe.asteroids.map(a => ({
                 id: a.id,
@@ -766,6 +795,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             space(context, helper);
             flightStickDraw(context, helper);
             telemetry(millis);
+            updateBoostGlow();
         },
         setControlsShow: (show: boolean) => {
             isControlsShow = show;

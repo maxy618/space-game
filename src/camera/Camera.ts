@@ -153,6 +153,25 @@ export function velocityZoomFactor(
     return factor;
 }
 
+/**
+ * Speed-driven fisheye strength (user 2026-11-08), normalized 0..1.
+ *
+ * Zero at or below the boost cap (normal flight and boost cruise look
+ * exactly as before); above it the warp grows with logarithmically
+ * diminishing increments and stays subtle — only slightly stronger even
+ * at 30 000. The caller applies the same radial barrel mapping as before
+ * (center = farthest point, unchanged).
+ *
+ * @param speed    ship speed (total velocity, px/s)
+ * @param boostCap the speed where the warp starts (6000)
+ */
+export function fisheyeTargetForSpeed(speed: number, boostCap: number): number {
+    if (speed <= boostCap) return 0;
+    // log5 curve: 6000 → 0, 12 000 → 0.43, 30 000 → 1 (diminishing increments)
+    const t = clamp(Math.log(speed / boostCap) / Math.log(5), 0, 1);
+    return 0.6 * t;
+}
+
 /** Smooth follow rate (per second) used by the ship-chase camera. */
 export const CAMERA_FOLLOW_RATE = 30;
 

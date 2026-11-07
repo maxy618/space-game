@@ -343,45 +343,25 @@ export class ZoomedDrawScope {
     }
     drawTrack(track: Track) {
         const context = this.context;
-        const helper = this.helper;
         if (SIMPLE_TRACK_DRAWING) {
-            const lineWidth = 1 / this.zoom;
-            let prevX: number;
-            let prevY: number;
-            let drawing = false;
-            context.strokeStyle = Colors.Green;
-            context.lineWidth = lineWidth;
-            track.positions.forEach((point, idx) => {
-                if (idx !== 0) {
-                    if (helper.mayDrawLine(lineWidth, prevX, prevY, point.x, point.y)) {
-                        if (!drawing) {
-                            drawing = true;
-                            context.beginPath();
-                            context.moveTo(prevX, prevY);
-                        }
-                        context.lineTo(point.x, point.y);
-                    } else if (drawing) {
-                        drawing = false;
-                        context.stroke();
-                    }
+            // Translucent continuous trail (user 2026-11-08): one path, one
+            // stroke, no per-segment culling — culling mid-path broke the
+            // polyline into random dots at high speed. The whole track costs
+            // a single draw call.
+            if (track.positions.size() < 2) return;
+            context.strokeStyle = "rgba(80, 255, 140, 0.35)";
+            context.lineWidth = 1.2 / this.zoom;
+            context.beginPath();
+            let first = true;
+            track.positions.forEach((point) => {
+                if (first) {
+                    context.moveTo(point.x, point.y);
+                    first = false;
+                } else {
+                    context.lineTo(point.x, point.y);
                 }
-                prevX = point.x;
-                prevY = point.y;
             });
-            if (drawing) {
-                drawing = false;
-                context.stroke();
-            }
-            //            if (positions.size < 2) return
-            //            drawPath(Path()
-            //                .apply {
-            //                    val p = positions[positions.size - 1]
-            //                    moveTo(p.x, p.y)
-            //                    positions.reversed().subList(1, positions.size).forEach { p ->
-            //                        lineTo(p.x, p.y)
-            //                    }
-            //                },
-            //                color = Color.Green, style = Stroke(1f/zoom))
+            context.stroke();
         } else {
             if (track.positions.size() < 2) return;
             let prev: Vec2 | null = null;
