@@ -62,6 +62,13 @@ export class Deque<T> {
         this.length++;
     }
 
+    /** Remove all elements (respawn track restart; temp_mission §6). */
+    clear(): void {
+        this.elementData.fill(undefined);
+        this.length = 0;
+        this.head = 0;
+    }
+
     forEach(fn: (item: T, idx: number) => void): void {
         const elementData = this.elementData;
         const capacity = elementData.length;

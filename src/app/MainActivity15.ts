@@ -47,6 +47,7 @@ import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
 import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M, decayKick, kickMetersForScreenPx } from "../camera/Camera";
 import { newRandom } from "../core/RandomKt";
+import { fisheyeTargetFromSpeed } from "../universe/Relativity";
 
 const TEST_UNIVERSE = false
 
@@ -84,10 +85,9 @@ let SPEED_ZOOM_ENABLED = true;
 // everywhere, so relative velocity-zoom behavior is unchanged.
 const CAMERA_DISTANCE = 1.5;
 
-// Fisheye warp-boost edge distortion strength (user 2026-11-08). 0 = off,
-// 1 = full. Driven by boost engagement, applied as radial screen warp per
-// frame in the render layer below (barrel toward edges, center stays sharp).
-let FISHEYE = 0;
+// Fisheye edge distortion (temp_mission §5): driven by ACTUAL speed, not the
+// boost button. The target curve lives in Relativity.fisheyeTargetFromSpeed
+// (0 at rest, 1 at 6000, →1.12 bounded); Spaaaace smooths toward it per frame.
 
 let playSpeed = 1;
 let camZoom = DEFAULT_CAMERA_ZOOM;
@@ -209,6 +209,11 @@ function Telemetry(universe: VisibleUniverse, autopilot: Autopilot15,
             bottomString += "ALT: " + distToClosest;
         }
         if (bottomString.length > 0) bottomString += "\n";
+        if (universe.isDestroyed) bottomString += "DESTROYED\n";
+        else if (ship.heat > 0.001 || ship.coronaDanger) {
+            bottomString += "HEAT: " + (ship.heat * 100).toFixed(0) + "%\n";
+            if (ship.coronaDanger) bottomString += "CORONA DANGER\n";
+        }
         bottomString += "THR: " + (ship.thrust.mag() * 100).toFixed(0) + "%\n";
         bottomString += "POS: " + ship.pos.str() + "\n";
         bottomString += "VEL: " + ship.velocity.mag().toFixed(0);
@@ -302,24 +307,36 @@ function Spaaaace(
         const canvasWidth = context.canvas.width;
         const canvasHeight = context.canvas.height;
 
-        // Smooth fisheye strength toward its target; the world renders into
-        // an offscreen canvas while the warp is active, then gets tiled back
-        // with a radial barrel mapping (center sharp, edges warped).
+        // Speed-driven fisheye (temp_mission §5): target from ACTUAL speed,
+        // smoothed toward it. Disabling boost no longer kills the effect
+        // while the ship is still fast. reduced-motion users get none.
+        const fisheyeTarget = reducedMotion ? 0 : fisheyeTargetFromSpeed(u.ship.velocity.mag());
         if (!reducedMotion) {
-            if (FISHEYE > fisheyeSmooth) fisheyeSmooth = Math.min(FISHEYE, fisheyeSmooth + u.dt * 2.2);
-            else fisheyeSmooth = Math.max(FISHEYE, fisheyeSmooth - u.dt * 3.0);
+            if (fisheyeTarget > fisheyeSmooth) fisheyeSmooth = Math.min(fisheyeTarget, fisheyeSmooth + u.dt * 2.2);
+            else fisheyeSmooth = Math.max(fisheyeTarget, fisheyeSmooth - u.dt * 3.0);
         } else {
             fisheyeSmooth = 0;
         }
         const warpActive = fisheyeSmooth > 0.01;
+        // Overscan for the warp (temp_mission §5): the barrel mapping samples
+        // OUTWARD (edges minified, centre sharp), so edge content lives in a
+        // margin beyond the screen. The offscreen is W+2M × H+2M with world
+        // centred, the helper rect is widened by the same margin in metres,
+        // and the blit maps screen → offscreen. This is what stopped the
+        // star/other bodies disappearing at the edges (the old inward
+        // sampling never reached the outer ring). Target at 6000 is unchanged
+        // (k = 0.30·smooth); above 6000 the curve is bounded (→1.12).
+        const offMargin = warpActive ? Math.ceil(Math.max(canvasWidth, canvasHeight) * 0.45) : 0;
+        const drawWidth = warpActive ? canvasWidth + offMargin * 2 : canvasWidth;
+        const drawHeight = warpActive ? canvasHeight + offMargin * 2 : canvasHeight;
         const drawCtx = warpActive ? offCtx : context;
         if (warpActive) {
-            if (offCanvas.width !== canvasWidth) offCanvas.width = canvasWidth;
-            if (offCanvas.height !== canvasHeight) offCanvas.height = canvasHeight;
+            if (offCanvas.width !== drawWidth) offCanvas.width = drawWidth;
+            if (offCanvas.height !== drawHeight) offCanvas.height = drawHeight;
         }
         const w2 = drawCtx;
         w2.fillStyle = Colors.Eigengrau;
-        w2.fillRect(0, 0, canvasWidth, canvasHeight);
+        w2.fillRect(0, 0, drawWidth, drawHeight);
 
         // Depth layers (P05-T03): distant starfield + foreground dust. Drawn
         // in device pixels (identity transform) BEFORE the world grid: far
@@ -330,8 +347,8 @@ function Spaaaace(
             w2.save();
             w2.setTransform(1, 0, 0, 1, 0, 0);
             const tile = 512;
-            const tilesX = Math.ceil(canvasWidth / tile) + 1;
-            const tilesY = Math.ceil(canvasHeight / tile) + 1;
+            const tilesX = Math.ceil(drawWidth / tile) + 1;
+            const tilesY = Math.ceil(drawHeight / tile) + 1;
             const drawLayer = (dots: StarDot[], pxPerM: number) => {
                 const ox = -parallaxOffsetPx(chaseX, dpr, pxPerM);
                 const oy = -parallaxOffsetPx(chaseY, dpr, pxPerM);
@@ -491,14 +508,15 @@ function Spaaaace(
         w2.save();
         w2.scale(deviceScale, deviceScale);
         w2.translate(
-            (-visibleSpaceRectMeterCenterX + canvasWidth * 0.5 / deviceScale),
-            (-visibleSpaceRectMeterCenterY + canvasHeight * 0.5 / deviceScale)
+            (-visibleSpaceRectMeterCenterX + drawWidth * 0.5 / deviceScale),
+            (-visibleSpaceRectMeterCenterY + drawHeight * 0.5 / deviceScale)
         );
-        helper.x = visibleSpaceRectMeterLeft;
-        helper.y = visibleSpaceRectMeterTop;
-        helper.width = visibleSpaceSizeMeterWidth;
-        helper.height = visibleSpaceSizeMeterHeight;
-        helper.radius = sqrt((visibleSpaceSizeMeterWidth * visibleSpaceSizeMeterWidth + visibleSpaceSizeMeterHeight * visibleSpaceSizeMeterHeight) / 4);
+        const helperMarginM = offMargin / deviceScale;
+        helper.x = visibleSpaceRectMeterLeft - helperMarginM;
+        helper.y = visibleSpaceRectMeterTop - helperMarginM;
+        helper.width = visibleSpaceSizeMeterWidth + helperMarginM * 2;
+        helper.height = visibleSpaceSizeMeterHeight + helperMarginM * 2;
+        helper.radius = sqrt(((helper.width) * (helper.width) + (helper.height) * (helper.height)) / 4);
         // All coordinates are space coordinates now.
 
         // debug outer frame
@@ -550,12 +568,21 @@ function Spaaaace(
                     const dy = ty + T / 2 - cy;
                     const r = Math.hypot(dx, dy);
                     const t = r / R;
-                    const srcR = r * (1 - k * t * t);
-                    const sx = cx + (dx / (r || 1)) * srcR;
-                    const sy = cy + (dy / (r || 1)) * srcR;
-                    context.drawImage(offCanvas, clamp(sx - T / 2, 0, canvasWidth - T), clamp(sy - T / 2, 0, canvasHeight - T), T, T, tx, ty, T, T);
+                    const srcR = r / Math.max(0.4, (1 - k * t * t));
+                    const sx = drawWidth / 2 + (dx / (r || 1)) * srcR;
+                    const sy = drawHeight / 2 + (dy / (r || 1)) * srcR;
+                    context.drawImage(offCanvas, clamp(sx - T / 2, 0, drawWidth - T), clamp(sy - T / 2, 0, drawHeight - T), T, T, tx, ty, T, T);
                 }
             }
+        }
+        // Destruction flash (temp_mission §6): white overlay that decays in
+        // Universe.updateAll. Drawn unwarped on top of everything.
+        if (u.flash > 0.001) {
+            context.save();
+            context.setTransform(1, 0, 0, 1, 0, 0);
+            context.fillStyle = "rgba(255,255,255," + (u.flash * 0.9).toFixed(3) + ")";
+            context.fillRect(0, 0, canvasWidth, canvasHeight);
+            context.restore();
         }
     }
 }
@@ -589,11 +616,11 @@ export function setSpeedZoomEnabled(enabled: boolean) {
     SPEED_ZOOM_ENABLED = enabled;
 }
 
-/** Fisheye warp-boost strength 0..1 (0.02 handled smooth inside Spaaaace). */
-export function setBoostEngaged(engaged: boolean) {
-    // Gating: boost only engages at/above base cap; main.ts enforces the UI
-    // rule (button disabled below cap), this keeps the engine honest.
-    FISHEYE = engaged ? 1 : 0;
+/** Fisheye is speed-driven (temp_mission §5): kept for API compat, ignored.
+ * The warp follows actual velocity in Spaaaace, not the boost button. */
+export function setBoostEngaged(_engaged: boolean) {
+    // Intentional no-op: speed decides the warp, the button only flips the
+    // engine limit (ship.boost via activity.setBoost in main.ts).
 }
 
 export function setIsBaklava(baklava: boolean) {    if (baklava != isBaklava) {

@@ -34,7 +34,7 @@ import { Body, Simulator } from "../core/Physics";
 import { Fuse } from "../core/Physics15";
 import { Landing, Planet, SCALED_THRUST, Spacecraft, UniverseConst } from "./Universe";
 import { Removable } from "../core/Physics";
-import { Vec2_makeWithAngleMag, Vec2_makeWithAngleMagAdd } from "../core/Vec2";
+import { applyEngineThrust } from "./Relativity";
 import type { Autopilot15 } from "../sim/Autopilot15";
 
 const updateBody = Body.prototype.update;
@@ -70,7 +70,7 @@ export class Spacecraft15 extends Spacecraft {
         // check for thrusters
         const thrustMag = this.thrust.mag();
         if (thrustMag > 0) {
-            let deltaV = UniverseConst.MAIN_ENGINE_ACCEL * dt * this.thrustMultiplier;
+            let deltaV = this.spec.engineAccel * dt * this.thrustMultiplier;
             if (SCALED_THRUST) deltaV *= clamp(thrustMag, 0, 1);
 
             if (this.landing !== null) {
@@ -85,31 +85,20 @@ export class Spacecraft15 extends Spacecraft {
                 }
             }
 
-            // this is it. impart thrust to the ship.
-            // note that we always thrust in the forward direction
-            Vec2_makeWithAngleMagAdd(this.velocity, this.angle, deltaV);
+            // Relativistic engine thrust (temp_mission §3–§4) — identical to
+            // Spacecraft.update: limits cap ENGINE speed only, gravity may
+            // exceed, no brake-drag, braking/steering always work.
+            if (deltaV > 0) {
+                const limit = this.boost ? this.spec.boostLimit : this.spec.engineLimit;
+                const n = applyEngineThrust(
+                    this.velocity.x, this.velocity.y, this.angle, deltaV,
+                    limit, this.spec.restMass,
+                );
+                this.velocity.x = n.vx;
+                this.velocity.y = n.vy;
+            }
         } else {
             if (this.launchClock !== 0) this.launchClock = 0;
-        }
-
-        // apply global speed limit (boost raises it 4000 → 6000; after
-        // release the boost cap lingers until you cool below 4500 — no
-        // instant snap, user 2026-11-08). boostLatched is set only by the
-        // engaged burner, never by raw speed (test-reachable above cap).
-        if (this.boost) this.boostLatched = true;
-        else if (this.velocity.mag() < UniverseConst.CRAFT_SPEED_LIMIT_BOOST - 1500) this.boostLatched = false;
-        const speedLimit = (this.boost || this.boostLatched) ? UniverseConst.CRAFT_SPEED_LIMIT_BOOST : UniverseConst.CRAFT_SPEED_LIMIT;
-        if (this.velocity.mag() > speedLimit) {
-            // coasting down from boost: brake-drag 600 m/s² toward the cap
-            // (physical decay, not an instant snap — user 2026-11-08)
-        if (!this.boost && this.boostLatched) {
-                const over = this.velocity.mag() - speedLimit;
-                const decel = 1200 * dt; // brake drag outruns full engine thrust
-                if (over <= decel) Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
-                else Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), this.velocity.mag() - decel);
-            } else {
-                Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
-            }
         }
 
         updateBody.call(this, sim, dt);

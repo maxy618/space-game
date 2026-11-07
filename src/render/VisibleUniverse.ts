@@ -239,20 +239,27 @@ export class ZoomedDrawScope {
         context.save();
         context.translate(ship.pos.x, ship.pos.y);
         context.rotate(ship.angle);
-        //                drawPath(
-        //                    path = createStar(200f, 100f, 3),
-        //                    color = Color.White,
-        //                    style = Stroke(width = 2f / zoom)
-        //                )
+        // Minimum on-screen hull size (temp_mission §8): when fully zoomed
+        // out the 24 m hull is sub-pixel and the white outline alone would
+        // read as an excessively bright dot. The art is scaled UP to at
+        // least 10 CSS px; the physical hitbox (ship.radius) is untouched.
+        // Outline width is compensated so it stays ~1.3 CSS px on screen.
+        const zoom = this.zoom;
+        const hullDiameterM = 24; // visual hull extent (metres, art-only)
+        const minScreenPx = 10;
+        const visualScale = Math.max(1, minScreenPx / (hullDiameterM * zoom));
+        context.save();
+        context.scale(visualScale, visualScale);
         context.fillStyle = Colors.Eigengrau;
         context.fill(this.spaceshipPath); // fauxpaque
         context.strokeStyle = ship.transit ? Colors.Black : Colors.White;
-        context.lineWidth = 2 / this.zoom;
+        context.lineWidth = 1.3 / (zoom * visualScale);
         context.stroke(this.spaceshipPath);
+        context.restore();
         if (ship.thrust.x !== 0 || ship.thrust.y !== 0) {
             context.strokeStyle = "#FF8800";
             context.lineJoin = "round";
-            context.lineWidth = 2 / this.zoom;
+            context.lineWidth = 2 / zoom;
             context.stroke(this.thrustPath);
         }
         //                drawRect(
@@ -346,20 +353,34 @@ export class ZoomedDrawScope {
         const helper = this.helper;
         if (SIMPLE_TRACK_DRAWING) {
             const lineWidth = 1 / this.zoom;
+            // Translucent green (temp_mission §8): was fully opaque #00FF00.
+            context.strokeStyle = "rgba(0,255,0,0.55)";
+            context.lineWidth = lineWidth;
+            context.lineCap = "round";
+            context.lineJoin = "round";
             let prevX: number;
             let prevY: number;
             let drawing = false;
-            context.strokeStyle = Colors.Green;
-            context.lineWidth = lineWidth;
             track.positions.forEach((point, idx) => {
                 if (idx !== 0) {
                     if (helper.mayDrawLine(lineWidth, prevX, prevY, point.x, point.y)) {
+                        // Continuous solid line even at high speed (temp
+                        // mission §8): subdivide long high-speed segments so
+                        // the stroke never reads as a dotted line.
+                        const segLenM = Math.hypot(point.x - prevX, point.y - prevY);
+                        const maxSegM = 8 / this.zoom; // ≤8 CSS px per step
+                        const steps = Math.max(1, Math.ceil(segLenM / maxSegM));
                         if (!drawing) {
                             drawing = true;
                             context.beginPath();
                             context.moveTo(prevX, prevY);
                         }
-                        context.lineTo(point.x, point.y);
+                        for (let s = 1; s <= steps; s++) {
+                            context.lineTo(
+                                prevX + (point.x - prevX) * (s / steps),
+                                prevY + (point.y - prevY) * (s / steps),
+                            );
+                        }
                     } else if (drawing) {
                         drawing = false;
                         context.stroke();
