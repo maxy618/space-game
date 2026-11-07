@@ -45,7 +45,8 @@ import { FlightStick } from "../input/FlightStick";
 import { InputActionLayer } from "../input/InputActions";
 import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
-import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor } from "../camera/Camera";
+import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M } from "../camera/Camera";
+import { newRandom } from "../core/RandomKt";
 
 const TEST_UNIVERSE = false
 
@@ -222,6 +223,30 @@ function Spaaaace(
     let chaseY = 0;
     let chaseInitialized = false;
 
+    // Deterministic starfield (P05-T03): seeded once per scene, phase-locked
+    // to camera translation only (never zoom-scaled), wrapped in 512 px tiles.
+    const STARFIELD_SEED = 123456789n;
+    const starfieldRng = newRandom(STARFIELD_SEED);
+    interface StarDot { x: number; y: number; size: number; alpha: number }
+    const starfield: StarDot[] = [];
+    for (let i = 0; i < 140; i++) {
+        starfield.push({
+            x: starfieldRng.minmax(0, 512),
+            y: starfieldRng.minmax(0, 512),
+            size: starfieldRng.minmax(0.6, 1.8),
+            alpha: starfieldRng.minmax(0.18, 0.85),
+        });
+    }
+    const dustfield: StarDot[] = [];
+    for (let i = 0; i < 36; i++) {
+        dustfield.push({
+            x: starfieldRng.minmax(0, 512),
+            y: starfieldRng.minmax(0, 512),
+            size: starfieldRng.minmax(0.8, 2.2),
+            alpha: starfieldRng.minmax(0.05, 0.16),
+        });
+    }
+
     const centerFracX = 0.5;
     const centerFracY = 0.5;
 
@@ -230,6 +255,38 @@ function Spaaaace(
         const canvasHeight = context.canvas.height;
         context.fillStyle = Colors.Eigengrau;
         context.fillRect(0, 0, canvasWidth, canvasHeight);
+
+        // Depth layers (P05-T03): distant starfield + foreground dust. Drawn
+        // in device pixels (identity transform) BEFORE the world grid: far
+        // stars respond to camera translation only (0.08 px/m), never zoom;
+        // dust runs hyper-parallax (1.3 px/m). Both wrap in 512 px tiles.
+        {
+            const dpr = window.devicePixelRatio;
+            context.save();
+            context.setTransform(1, 0, 0, 1, 0, 0);
+            const tile = 512;
+            const tilesX = Math.ceil(canvasWidth / tile) + 1;
+            const tilesY = Math.ceil(canvasHeight / tile) + 1;
+            const drawLayer = (dots: StarDot[], pxPerM: number) => {
+                const ox = -parallaxOffsetPx(chaseX, dpr, pxPerM);
+                const oy = -parallaxOffsetPx(chaseY, dpr, pxPerM);
+                for (const dot of dots) {
+                    const bx = wrapTile(dot.x + ox, tile);
+                    const by = wrapTile(dot.y + oy, tile);
+                    for (let tx = 0; tx < tilesX; tx++) {
+                        for (let ty = 0; ty < tilesY; ty++) {
+                            context.globalAlpha = dot.alpha;
+                            context.fillStyle = "#D8D8FF";
+                            context.fillRect(bx + tx * tile, by + ty * tile, dot.size * dpr, dot.size * dpr);
+                        }
+                    }
+                }
+                context.globalAlpha = 1;
+            };
+            drawLayer(starfield, STARFIELD_PARALLAX_PX_PER_M);
+            drawLayer(dustfield, DUST_PARALLAX_PX_PER_M);
+            context.restore();
+        }
 
         // High-DPI fix (user report: 2.5K phone showed the world ~3x too far).
         // cameraZoom is now expressed in CSS pixels per meter, so the world

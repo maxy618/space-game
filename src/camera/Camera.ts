@@ -160,3 +160,26 @@ export const CAMERA_FOLLOW_RATE = 30;
 export function chaseLagMeters(speed: number): number {
     return speed / CAMERA_FOLLOW_RATE;
 }
+
+/**
+ * Totally distant parallax layer: device-px shift per meter of camera
+ * travel. Independent of camera zoom by design — like a real starfield at
+ * infinity, it only responds to camera translation, never to zoom.
+ */
+export const STARFIELD_PARALLAX_PX_PER_M = 0.08;
+
+/** Foreground dust: moves faster than the world plane (hyper-parallax). */
+export const DUST_PARALLAX_PX_PER_M = 1.3;
+
+/** Wrap a screen-space coordinate into a repeating tile (topology-safe). */
+export function wrapTile(v: number, tile: number): number {
+    return ((v % tile) + tile) % tile;
+}
+
+/**
+ * Device-px offset for a parallax layer at the given camera position.
+ * Two tiles of stars with the same seed stay phase-locked forever.
+ */
+export function parallaxOffsetPx(cameraMeters: number, dpr: number, pxPerM: number): number {
+    return cameraMeters * pxPerM * dpr;
+}
