@@ -279,6 +279,21 @@ function Spaaaace(
             alpha: starfieldRng.minmax(0.05, 0.16),
         });
     }
+    // Near debris (user 2026-11-08): tiny tumbling rock triangles on a fast
+    // parallax plane (2.5 px/m) — they whizz past close to the camera and
+    // give the "flying through a debris cloud" feel of volume.
+    interface Debris { x: number; y: number; size: number; alpha: number; spin: number; seed: number }
+    const debris: Debris[] = [];
+    for (let i = 0; i < 70; i++) {
+        debris.push({
+            x: starfieldRng.minmax(0, 512),
+            y: starfieldRng.minmax(0, 512),
+            size: starfieldRng.minmax(1.2, 4.5),
+            alpha: starfieldRng.minmax(0.12, 0.4),
+            spin: starfieldRng.minmax(-1.2, 1.2),
+            seed: starfieldRng.minmax(0, 100),
+        });
+    }
 
     const centerFracX = 0.5;
     const centerFracY = 0.5;
@@ -336,6 +351,35 @@ function Spaaaace(
             drawLayer(starfield, STARFIELD_PARALLAX_PX_PER_M);
             drawLayer(midfield, 0.15);
             drawLayer(dustfield, DUST_PARALLAX_PX_PER_M);
+            // Near debris: tumbling triangles on the 2.5 px/m plane.
+            const dox = -parallaxOffsetPx(chaseX, dpr, 2.5);
+            const doy = -parallaxOffsetPx(chaseY, dpr, 2.5);
+            const now = performance.now() / 1000;
+            for (const dt2 of debris) {
+                const bx = wrapTile(dt2.x + dox, tile);
+                const by = wrapTile(dt2.y + doy, tile);
+                for (let tx = 0; tx < tilesX; tx++) {
+                    for (let ty = 0; ty < tilesY; ty++) {
+                        const cx = bx + tx * tile;
+                        const cy = by + ty * tile;
+                        const s = dt2.size * dpr;
+                        const rot = now * dt2.spin + dt2.seed;
+                        w2.save();
+                        w2.translate(cx, cy);
+                        w2.rotate(rot);
+                        w2.globalAlpha = dt2.alpha;
+                        w2.fillStyle = "#8A7D72";
+                        w2.beginPath();
+                        w2.moveTo(s, 0);
+                        w2.lineTo(-s * 0.7, s * 0.6);
+                        w2.lineTo(-s * 0.3, -s * 0.8);
+                        w2.closePath();
+                        w2.fill();
+                        w2.restore();
+                    }
+                }
+            }
+            w2.globalAlpha = 1;
             w2.restore();
         }
 

@@ -517,7 +517,7 @@ export class VisibleUniverse15 extends VisibleUniverse {
             this.planets.push(p);
             this.addEntity(p);
         }
-        this.spawnAsteroids(12);
+        this.spawnAsteroids(36);
         this.planets.sort((a, b) => a.pos.distance(this.star.pos) - b.pos.distance(this.star.pos));
         this.planets.forEach((planet, idx) => planet.name = (systemName + " " + (idx + 1)));
         this.addEntity(this.star);

@@ -371,20 +371,17 @@ export class Universe extends Simulator {
     }
 
     /**
-     * Spawn drifting debris (user 2026-11-08): 12 seeded asteroids in the
-     * orbit band with tangential velocities around the star, so they slowly
-     * orbit under gravity. They are visual/physics bodies, not landable —
-     * collisions are disabled, they keep stable ids (2001+) and are NOT saved
-     * (decorative debris, regenerated from the world seed).
+     * Spawn a drifting asteroid belt (user 2026-11-08): 36 seeded asteroids
+     * clustered in one radial band (60–110 km), radii 25–350 m, with
+     * tangential Keplerian velocities around the star — the belt slowly
+     * rotates coherently under gravity. They are visual/physics bodies, not
+     * landable — collisions are disabled, they keep stable ids (2001+) and
+     * are NOT saved (decorative debris, regenerated from the world seed).
      */
     spawnAsteroids(count: number) {
         for (let i = 0; i < count; i++) {
-            const radius = this.rngForInit.minmax(60, 500);
-            const orbitRadius = lerp(
-                UniverseConst.PLANET_ORBIT_RANGE_MIN,
-                UniverseConst.PLANET_ORBIT_RANGE_MAX,
-                this.rngForInit.float()
-            );
+            const radius = this.rngForInit.minmax(25, 350);
+            const orbitRadius = lerp(60_000, 110_000, this.rngForInit.float());
             const a = new Asteroid(radius);
             a.id = 2001 + i;
             a.seed = this.rngForInit.float();
