@@ -771,8 +771,17 @@ export class Spacecraft extends Body {
         if (this.boost) this.boostLatched = true;
         else if (this.velocity.mag() < UniverseConst.CRAFT_SPEED_LIMIT_BOOST - 1500) this.boostLatched = false;
         const speedLimit = (this.boost || this.boostLatched) ? UniverseConst.CRAFT_SPEED_LIMIT_BOOST : UniverseConst.CRAFT_SPEED_LIMIT;
-        if (this.velocity.mag() > speedLimit)
-            Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
+        if (this.velocity.mag() > speedLimit) {
+            // coasting down from boost: brake-drag 600 m/s² toward the cap
+            if (!this.boost && this.boostLatched) {
+                const over = this.velocity.mag() - speedLimit;
+                const decel = 1200 * dt; // brake drag outruns full engine thrust
+                if (over <= decel) Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
+                else Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), this.velocity.mag() - decel);
+            } else {
+                Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
+            }
+        }
 
         super.update(sim, dt);
     }
