@@ -270,12 +270,13 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             const baseLen = (8 + thrustMag * 30 + shipSpeed / 5000 * 22) * flick * (boostOn ? 1.35 : 1) * 1.35;
             const baseHalf = 2.6 + thrustMag * 4.2;
 
-            // Boost burner palette (user 2026-11-08): a piercing white-cyan
-            // beam — reads instantly as "afterburner", unlike the warm engine
-            // flame. Longer, narrower core; wide pale halo.
-            const outerCol = boostOn ? "rgba(140,220,255," : "rgba(255,140,40,";
-            const midCol = boostOn ? "rgba(190,240,255," : "rgba(255,210,150,";
-            const coreCol = boostOn ? "rgba(242,250,255," : "rgba(255,250,240,";
+            // Boost burner palette (user 2026-11-08, refined): the afterburner
+            // is a piercing white-cyan beam, CHIEF/Different from the warm
+            // engine flame — longer core spike, electric-blue surround, plus
+            // twin edge rings. Reads instantly as "afterburner".
+            const outerCol = boostOn ? "rgba(80,180,255," : "rgba(255,140,40,";
+            const midCol = boostOn ? "rgba(170,225,255," : "rgba(255,210,150,";
+            const coreCol = boostOn ? "rgba(245,252,255," : "rgba(255,250,240,";
 
             const band = (len: number, half: number, colPrefix: string, alpha: number, notch: number, seed: number) => {
                 context.fillStyle = colPrefix + alpha + ")";
@@ -309,12 +310,34 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             for (let kind = 1; kind >= 0; kind--) {
                 const k = kind; // 0 outer, 1 mid — drawn last to front
                 const len = baseLen * (kind === 0 ? 1 : 0.62);
-                const half = baseHalf * (kind === 0 ? 1 : 0.6);
+                const half = baseHalf * (kind === 0 ? 1 : (boostOn ? 0.5 : 0.6));
                 band(len, half, kind === 0 ? outerCol : midCol, (kind === 0 ? 0.20 : 0.30) + exhaustLap * 0.35, 0.28 + k * 0.1, k * 3.7);
             }
 
             // inner core (bright, short)
-            band(baseLen * 0.55, baseHalf * 0.5, coreCol, 0.55 + exhaustLap * 0.4, 0.2, 99);
+            band(baseLen * 0.55, baseHalf * (boostOn ? 0.42 : 0.5), coreCol, 0.55 + exhaustLap * 0.4, 0.2, 99);
+
+            // afterburner spike (boost only): a long thin needle that flickers
+            // hard — the visual signature of the burner.
+            if (boostOn) {
+                const spikeLen = baseLen * (1.5 + 0.3 * Math.sin(t * 33));
+                context.fillStyle = "rgba(255,255,255," + (0.35 + exhaustLap * 0.5) + ")";
+                context.beginPath();
+                context.moveTo(-4, -baseHalf * 0.22);
+                context.lineTo(-4 - spikeLen, 0);
+                context.lineTo(-4, baseHalf * 0.22);
+                context.closePath();
+                context.fill();
+                // twin edge rings around the core
+                for (let i = 0; i < 2; i++) {
+                    const offRing = (t * 60 + i * 55 + 20) % 120;
+                    context.strokeStyle = "rgba(150,210,255," + (0.5 * (1 - offRing / 120)) + ")";
+                    context.lineWidth = 1.2 / this.zoom;
+                    context.beginPath();
+                    context.ellipse(-8 - offRing, 0, 3 + offRing * 0.08, 1.6 + offRing * 0.05, 0, 0, PI * 2);
+                    context.stroke();
+                }
+            }
 
             // licking tongues that pop on/off
             for (let i = 0; i < tongues; i++) {
