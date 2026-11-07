@@ -52,7 +52,29 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
     readonly spaceshipLegs = parseSvgPathData("\nM-7   -6.5\nl-3.5  0\nl-1   -2\nl 0    4\nl 1   -2\nZ\nM-7    6.5\nl-3.5  0\nl-1   -2\nl 0    4\nl 1   -2\nZ\n")
     readonly thrustPath = createPolygon(-3, 3, -5, 0);
 
+    // Deterministic nebula macroform (P07-T03): seeded once at construction.
+    // Three overlapping rotated blobs near the system core, drawn at low
+    // alpha under the bodies — coherent filaments, never hard-edged clouds.
+    private readonly nebulaBlobs: Array<{ x: number; y: number; r: number; rot: number; color: string; alpha: number; rr: number[] }> = (() => {
+        let s = 1234567n; // LCG — deterministic, independent of the world seed
+        const next = () => {
+            s = (s * 6364136223846793005n + 1442695040888963407n) & ((1n << 64n) - 1n);
+            return Number((s >> 11n) & ((1n << 53n) - 1n)) / 9007199254740992;
+        };
+        const colors = ["#7A6AA0", "#4A7A8A", "#8A6A9A", "#5A8AAA"];
+        return colors.map((color, i) => ({
+            x: (next() - 0.5) * 60000,
+            y: (next() - 0.5) * 60000,
+            r: 22000 + next() * 26000,
+            rot: next() * PI * 2,
+            color,
+            alpha: 0.05 + 0.03 * (i % 2) + next() * 0.03,
+            rr: Array.from({ length: 12 }, () => 0.65 + next() * 0.6),
+        }));
+    })();
+
     drawUniverse(universe: VisibleUniverse) {
+        this.drawNebula(); // layer 3 backdrop-under-bodies, before gravity rings
         universe.constraints.forEach(it => {
             if (it instanceof Landing) {
                 this.drawLanding(it);
@@ -75,6 +97,39 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             this.drawAutopilot(autopilot);
         }
         this.drawSpacecraft(ship);
+    }
+    drawNebula() {
+        const context = this.context;
+        const helper = this.helper;
+        if (!helper.width) return;
+        const left = helper.x;
+        const top = helper.y;
+        const right = left + helper.width;
+        const bottom = top + helper.height;
+        for (const blob of this.nebulaBlobs) {
+            // cull blobs far outside the visible world rect
+            if (blob.x + blob.r < left || blob.x - blob.r > right
+                || blob.y + blob.r < top || blob.y - blob.r > bottom) continue;
+            context.save();
+            context.translate(blob.x, blob.y);
+            context.rotate(blob.rot);
+            context.fillStyle = blob.color;
+            context.globalAlpha = blob.alpha;
+            context.beginPath();
+            const steps = blob.rr.length;
+            for (let i = 0; i <= steps; i++) {
+                const a = (i / steps) * PI * 2;
+                const rr = blob.r * blob.rr[i % steps];
+                const px = Math.cos(a) * rr;
+                const py = Math.sin(a) * rr * 0.72; // squash → filament feel
+                if (i === 0) context.moveTo(px, py);
+                else context.lineTo(px, py);
+            }
+            context.closePath();
+            context.fill();
+            context.restore();
+        }
+        context.globalAlpha = 1;
     }
     drawSpacecraft(ship: Spacecraft) {
         const context = this.context;
