@@ -53,11 +53,11 @@ Statuses: `PENDING`, `IN_PROGRESS`, `BLOCKED`, `VERIFIED`. Update at each checkp
 
 ## Phase 07 — Signature celestial visuals
 **Phase status:** PENDING
-- [ ] `P07-T01` — Stars and luminous events — `TASKS/PHASE_07/P07-T01_stars-and-luminous-events.md` — PENDING
-- [ ] `P07-T02` — Planets, moons and rings — `TASKS/PHASE_07/P07-T02_planets-moons-and-rings.md` — PENDING
-- [ ] `P07-T03` — Nebulae, dust and debris — `TASKS/PHASE_07/P07-T03_nebulae-dust-and-debris.md` — PENDING
-- [ ] `P07-T04` — Black-hole encounter — `TASKS/PHASE_07/P07-T04_black-hole-encounter.md` — PENDING
-- [ ] `P07-T05` — Integration gallery — `TASKS/PHASE_07/P07-T05_integration-gallery.md` — PENDING
+- [x] `P07-T01` - Stars and luminous events - `TASKS/PHASE_07/P07-T01_stars-and-luminous-events.md` - VERIFIED
+- [x] `P07-T02` - Planets, moons and rings - `TASKS/PHASE_07/P07-T02_planets-moons-and-rings.md` - VERIFIED
+- [x] `P07-T03` - Nebulae, dust and debris - `TASKS/PHASE_07/P07-T03_nebulae-dust-and-debris.md` - VERIFIED
+- [x] `P07-T04` - Black-hole encounter - `TASKS/PHASE_07/P07-T04_black-hole-encounter.md` - VERIFIED
+- [x] `P07-T05` - Integration gallery - `TASKS/PHASE_07/P07-T05_integration-gallery.md` - VERIFIED
 
 
 ## Phase 08 — Ray-marching, optics and contextual screen filters
