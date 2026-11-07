@@ -28,7 +28,6 @@
  * limitations under the License.
  */
 
-import { ARandom, SYSTEM } from "@thi.ng/random";
 import { sprintf } from "sprintf-js";
 import { expSmooth } from "../core/Maths";
 import { Entity, Simulator } from "../core/Physics";
@@ -67,8 +66,6 @@ export class Autopilot15 implements Entity {
     // used by rendering
     leadingPos = Vec2.Zero();
     leadingVector = Vec2.Zero();
-
-    rng: ARandom = SYSTEM;
 
     getTelemetry() {
         return ("---- AUTOPILOT ENGAGED ----\n" +
@@ -123,7 +120,8 @@ export class Autopilot15 implements Entity {
                 this.brakingDistance = 0;
 
                 // if we've explored them all, pick one at random
-                if (this.target === null) this.target = chooseRandom(this.rng, this.universe.planets);
+                // (sim.rng — deterministic stream, P03-T04: the SYSTEM RNG broke replay parity)
+                if (this.target === null) this.target = chooseRandom(sim.rng, this.universe.planets);
             }
 
             if (this.target !== null) { // should be nonnull

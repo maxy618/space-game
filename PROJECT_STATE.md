@@ -1,16 +1,27 @@
 # Project state
 
-**Active phase:** 03 — Modularization and deterministic game core
-**Active task:** P03-T04 — Parity regression suite (NEXT)
-**Overall status:** P01 ✅ | P02 ✅ | P03-T01 ✅ | P03-T02 ✅ | P03-T03 ✅ | P03-T04 ⏳
-**Last verified commit:** (see git log — P03-T03 boundary extraction)
-**Latest QA evidence:** EVIDENCE/PHASE_03/P03-T03/ (completion-report.md, t03-a..t03-d route)
+**Active phase:** 03 — Modularization and deterministic game core (COMPLETE)
+**Active task:** none — Phase 03 closed (P03-T04 VERIFIED)
+**Overall status:** P01 ✅ | P02 ✅ | P03-T01 ✅ | P03-T02 ✅ | P03-T03 ✅ | P03-T04 ✅
+**Last verified commit:** (see git log — P03-T04 parity regression suite)
+**Latest QA evidence:** EVIDENCE/PHASE_03/P03-T04/ (completion-report.md, t04-a..d route)
 
 ## Current checkpoint
-- Completed tasks: P01-T01..T04, P02-T01..T04, P03-T01, P03-T02, P03-T03
+- Completed tasks: P01-T01..T04, P02-T01..T04, P03-T01..T04 (Phase 03 COMPLETE)
 - In progress: none
 - Blocked: none
-- Next action: P03-T04 — parity regression suite, then Phase 03 exit gate → Phase 04.
+- Next action: Phase 03 exit gate passed → start Phase 04 (MISSION_04: ship controls and movement feel).
+
+## P03-T04 highlights (2026-11-07)
+- Parity regression suite: tests/parity-regression.test.ts (5 tests) —
+  autopilot target determinism (sim.rng replaces SYSTEM — replay parity
+  fixed), byte-identical autopilot flight, scripted thrust parity,
+  NaN-free smoke run. vitest 34/34, build clean.
+- Docs: docs/CONTENT_AUTHORING.md (how to add object/mechanic: layers,
+  stable IDs, serialization contract, determinism rules), docs/PLAYER_ROUTES.md
+  (repeatable Playwright routes A-D + MCP pitfalls).
+- Player route re-verified post-refactor: rest→thrust→drift→pause→resume,
+  0 console errors.
 
 ## P03-T03 highlights (2026-11-07)
 - Boundary extraction: Autopilot15 → src/sim/, FlightStick → src/input/,

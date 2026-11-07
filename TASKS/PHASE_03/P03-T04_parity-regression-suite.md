@@ -1,7 +1,7 @@
 # P03-T04 — Parity regression suite
 
 **Phase:** 03 — Modularization and deterministic game core  
-**Status:** PENDING  
+**Status:** VERIFIED  
 **Depends on:** Prior tasks in this phase and prior phase gate.
 
 ## Objective
