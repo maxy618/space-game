@@ -164,6 +164,12 @@ const activity = MainActivity15(
     document.getElementById("autopilotText")!,
     inputLayer,
 );
+
+// Debug-only test hook: QA routes (asteroid close-ups) steer the ship via
+// real input events, using these positions only to aim. Never player-facing.
+if (typeof location !== "undefined" && location.hash.includes("debug=1")) {
+    (window as unknown as { __game?: unknown }).__game = activity.debugState;
+}
 const pointerInput = activity.pointerInput;
 const drawFn = activity.draw;
 const setAutopilot = activity.setAutopilot;

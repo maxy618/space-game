@@ -722,10 +722,44 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         ship.thrustMultiplier = engaged ? 1.5 : 1;
     }
 
+    // Debug/testing hook (debug-only, #debug=1): exposes entity layout so
+    // QA routes can steer onto specific bodies (asteroids, planets) and
+    // screenshot close-ups. Player builds never read it.
+    function debugState() {
+        return {
+            ship: {
+                x: ship.pos.x,
+                y: ship.pos.y,
+                vx: ship.velocity.x,
+                vy: ship.velocity.y,
+                angle: ship.angle,
+                boost: ship.boost,
+            },
+            asteroids: universe.asteroids.map(a => ({
+                id: a.id,
+                x: a.pos.x,
+                y: a.pos.y,
+                vx: a.velocity.x,
+                vy: a.velocity.y,
+                angle: a.angle,
+                radius: a.radius,
+                seed: a.seed,
+            })),
+            planets: universe.planets.map(p => ({
+                id: p.id,
+                x: p.pos.x,
+                y: p.pos.y,
+                radius: p.radius,
+            })),
+            star: { x: universe.star.pos.x, y: universe.star.pos.y, radius: universe.star.radius },
+        };
+    }
+
     return {
         pointerInput: flightStick.pointerInput,
         setAutopilot: setAutopilot,
         setBoost: setBoost,
+        debugState: debugState,
         draw: (millis: number, context: CanvasRenderingContext2D, helper: CanvasHelper) => {
             applyKeyboardFlight(millis);
             universe.simulateFrame(millis);

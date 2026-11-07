@@ -237,6 +237,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         const thrustMag = ship.thrust.mag();
         const powered = thrustMag > 1e-6; // thrust vector magnitude (0..1), from the stick
         const shipSpeed = ship.velocity.mag();
+        const boostOn = ship.boost === true; // afterburner look (user 2026-11-08)
         const oldHelperX = helper.x;
         const oldHelperY = helper.y;
         helper.x -= ship.pos.x;
@@ -254,7 +255,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         context.fillStyle = Colors.Eigengrau;
         context.fill(this.spaceshipPath); // fauxpaque
         context.strokeStyle = ship.transit ? Colors.Black : Colors.White;
-        context.lineWidth = 2 / this.zoom;
+        context.lineWidth = 1.3 / this.zoom; // user 2026-11-08: 1.5x thinner hull outline
         context.stroke(this.spaceshipPath);
         // Dynamic exhaust flame (user request 2026-11-07, refined "beautiful
         // and alive"): a multi-layer procedural flame — turbulent teardrop with
@@ -266,11 +267,18 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             const exhaustLap = Math.min(1, Math.max(0, (thrustMag + shipSpeed / 5000) / 2));
             const t = performance.now() / 1000;
             const flick = 1 + 0.30 * Math.sin(t * 21) + 0.12 * Math.sin(t * 47 + 1.3);
-            const baseLen = (8 + thrustMag * 30 + shipSpeed / 5000 * 22) * flick;
+            const baseLen = (8 + thrustMag * 30 + shipSpeed / 5000 * 22) * flick * (boostOn ? 1.35 : 1);
             const baseHalf = 2.6 + thrustMag * 4.2;
 
-            const band = (len: number, half: number, color: string, notch: number, seed: number) => {
-                context.fillStyle = color;
+            // Boost burner palette (user 2026-11-08): a piercing white-cyan
+            // beam — reads instantly as "afterburner", unlike the warm engine
+            // flame. Longer, narrower core; wide pale halo.
+            const outerCol = boostOn ? "rgba(140,220,255," : "rgba(255,140,40,";
+            const midCol = boostOn ? "rgba(190,240,255," : "rgba(255,210,150,";
+            const coreCol = boostOn ? "rgba(242,250,255," : "rgba(255,250,240,";
+
+            const band = (len: number, half: number, colPrefix: string, alpha: number, notch: number, seed: number) => {
+                context.fillStyle = colPrefix + alpha + ")";
                 context.beginPath();
                 context.moveTo(-3, -half);
                 const steps = 24;
@@ -302,14 +310,11 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
                 const k = kind; // 0 outer, 1 mid — drawn last to front
                 const len = baseLen * (kind === 0 ? 1 : 0.62);
                 const half = baseHalf * (kind === 0 ? 1 : 0.6);
-                const col = kind === 0
-                    ? "rgba(255,140,40," + (0.20 + exhaustLap * 0.35) + ")"
-                    : "rgba(255,210,150," + (0.30 + exhaustLap * 0.4) + ")";
-                band(len, half, col, 0.28 + k * 0.1, k * 3.7);
+                band(len, half, kind === 0 ? outerCol : midCol, (kind === 0 ? 0.20 : 0.30) + exhaustLap * 0.35, 0.28 + k * 0.1, k * 3.7);
             }
 
             // inner core (bright, short)
-            band(baseLen * 0.55, baseHalf * 0.5, "rgba(255,250,240," + (0.55 + exhaustLap * 0.4) + ")", 0.2, 99);
+            band(baseLen * 0.55, baseHalf * 0.5, coreCol, 0.55 + exhaustLap * 0.4, 0.2, 99);
 
             // licking tongues that pop on/off
             for (let i = 0; i < tongues; i++) {
@@ -319,7 +324,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
                 const tongueOff = (i - 1) * (baseHalf * 0.34);
                 context.save();
                 context.translate(0, tongueOff);
-                band(tongueLen, baseHalf * (0.30 + 0.18 * phase), "rgba(255,170,80," + (0.25 + exhaustLap * 0.3) + ")", 0.45, i * 17.3);
+                band(tongueLen, baseHalf * (0.30 + 0.18 * phase), midCol, (0.25 + exhaustLap * 0.3), 0.45, i * 17.3);
                 context.restore();
             }
 
@@ -333,9 +338,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
                 const blink = Math.abs(Math.sin(t * 9 + i * 7.7));
                 const alpha = (1 - age) * (0.25 + 0.55 * exhaustLap) * (0.4 + 0.6 * blink);
                 if (alpha < 0.03) continue;
-                context.strokeStyle = i % 3 === 0
-                    ? "rgba(255,240,220," + alpha + ")"
-                    : "rgba(255,170,90," + alpha + ")";
+                context.strokeStyle = (i % 3 === 0 ? coreCol : midCol) + alpha + ")";
                 context.lineWidth = (1.6 - age * 0.9) / this.zoom;
                 context.beginPath();
                 context.moveTo(-4 - driftDist * 0.72, driftSide * 0.4);
@@ -600,6 +603,68 @@ export class VisibleUniverse15 extends VisibleUniverse {
                                 spark.velocity,
                                 //                                            a +
                                 // rng.nextFloatInRange(-PIf, PIf),
+                                this.rng.minmax(0, 2 * PI),
+                                this.rng.minmax(0.1, 0.5)
+                            );
+                            spark.velocity.x += this.ship.velocity.x * 0.8;
+                            spark.velocity.y += this.ship.velocity.y * 0.8;
+                            this.addEntity(spark);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Asteroid collision (user 2026-11-08): same landing-or-impact logic
+        // as planets, with the asteroid as the landing target (treated as a
+        // Planet for the Landing constraint — same pos/radius interface).
+        if (this.ship.landing === null) {
+            let closestAsteroid: Asteroid | null = null;
+            let closestDist = Infinity;
+            for (const a of this.asteroids) {
+                if (!a.collides) continue;
+                const d = this.ship.pos.distance(a.pos);
+                if (d < closestDist) {
+                    closestDist = d;
+                    closestAsteroid = a;
+                }
+            }
+            if (closestAsteroid !== null) {
+                const asteroid = closestAsteroid;
+                const d = closestDist - this.ship.radius - asteroid.radius;
+                if (d < 0) {
+                    const a = Vec2_angle(this.ship.pos, asteroid.pos);
+                    const aDiff = abs(this.ship.angle - a);
+                    if (aDiff < PI / 4) {
+                        const landing = new Landing15(
+                            this.ship,
+                            asteroid as unknown as Planet,
+                            a,
+                            (this.namer as Namer15).describeActivity(this.rng, asteroid as unknown as Planet),
+                        );
+                        this.ship.landing = landing;
+                        Vec2_copy(this.ship.velocity, asteroid.velocity);
+                        this.addConstraint(landing);
+                    } else {
+                        const impact = Vec2_makeWithAngleMag(Vec2.Zero(), a, asteroid.radius).addSelf(asteroid.pos);
+                        Vec2_makeWithAngleMag(this.ship.pos, a, asteroid.radius + this.ship.radius - d).addSelf(asteroid.pos);
+                        for (let it = 1; it <= 10; it++) {
+                            const spark = new Spark(
+                                this.rng.minmax(0.5, 2),
+                                false,
+                                0,
+                                SparkStyle.DOT,
+                                Colors.White,
+                                1
+                            );
+                            Vec2_makeWithAngleMag(
+                                spark.pos,
+                                this.rng.minmax(0, 2 * PI),
+                                this.rng.minmax(0.1, 0.5)
+                            ).addSelf(impact);
+                            Vec2_copy(spark.opos, spark.pos);
+                            Vec2_makeWithAngleMag(
+                                spark.velocity,
                                 this.rng.minmax(0, 2 * PI),
                                 this.rng.minmax(0.1, 0.5)
                             );

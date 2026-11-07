@@ -201,7 +201,9 @@ export class Asteroid extends Body {
         super();
         this.radius = radius;
         this.mass = FOUR_OVER_THREE * PI * radius * radius * radius * (UniverseConst.PLANETARY_DENSITY / 2);
-        this.collides = false;
+        // collidable (user 2026-11-08): impacts push the ship out, aligned
+        // contact lands on the rock like on a planet.
+        this.collides = true;
     }
     update(sim: Simulator, dt: number) {
         this.angle += this.spin * dt;
@@ -366,6 +368,22 @@ export class Universe extends Simulator {
 
         this.planets.forEach(fn);
         fn(this.star);
+
+        // Asteroids feel the same gravity (user 2026-11-08): they drift and
+        // orbit under the star/planet wells instead of flying in straight lines.
+        // Acceleration is G·M/d² (mass-independent, as it should be).
+        for (const a of this.asteroids) {
+            for (const p of [this.star, ...this.planets]) {
+                const d = p.pos.distance(a.pos);
+                if (d > p.radius) {
+                    Vec2_makeWithAngleMagAdd(
+                        a.velocity,
+                        Vec2_angle(p.pos, a.pos),
+                        dt * UniverseConst.GRAVITATION * p.mass / (d * d)
+                    );
+                }
+            }
+        }
 
         super.updateAll(dt, entities);
     }
