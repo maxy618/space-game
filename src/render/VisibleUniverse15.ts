@@ -75,6 +75,11 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
 
     drawUniverse(universe: VisibleUniverse) {
         this.drawNebula(); // layer 3 backdrop-under-bodies, before gravity rings
+        // Black-hole landmark (P07-T04): the system is not a black hole, but
+        // the signature encounter is rendered as a fixed distant landmark at
+        // the far side of the playable space so players can fly up to it and
+        // inspect the event-horizon silhouette + accretion disc + lensing cue.
+        this.drawBlackHoleMark(180000, -140000, 2600);
         universe.constraints.forEach(it => {
             if (it instanceof Landing) {
                 this.drawLanding(it);
@@ -130,6 +135,51 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             context.restore();
         }
         context.globalAlpha = 1;
+    }
+    /**
+     * Black-hole landmark (P07-T04): pure black shadow disc + an orange
+     * accretion ring + a soft lensing halo. Art-directed 2D approximation —
+     * NOT real gravitational lensing (no ray tracing; Phase 08 scope).
+     */
+    drawBlackHoleMark(bx: number, by: number, br: number) {
+        const context = this.context;
+        const helper = this.helper;
+        if (!helper.width) return;
+        const left = helper.x;
+        const top = helper.y;
+        const right = left + helper.width;
+        const bottom = top + helper.height;
+        if (bx + br * 3 < left || bx - br * 3 > right || by + br * 3 < top || by - br * 3 > bottom) return;
+        // lensing glow (soft halo)
+        context.fillStyle = "rgba(255,180,90,0.10)";
+        context.beginPath();
+        context.arc(bx, by, br * 1.55, 0, PI * 2);
+        context.fill();
+        context.fillStyle = "rgba(255,150,60,0.10)";
+        context.beginPath();
+        context.arc(bx, by, br * 1.28, 0, PI * 2);
+        context.fill();
+        // accretion disc (squashed ring crossing in front)
+        context.save();
+        context.translate(bx, by);
+        context.scale(1, 0.34);
+        context.strokeStyle = "rgba(255,190,110,0.85)";
+        context.lineWidth = 90 / this.zoom;
+        context.beginPath();
+        context.arc(0, 0, br * 1.35, 0, PI * 2);
+        context.stroke();
+        context.restore();
+        // event-horizon shadow
+        context.fillStyle = "#000000";
+        context.beginPath();
+        context.arc(bx, by, br, 0, PI * 2);
+        context.fill();
+        // photon rim
+        context.strokeStyle = "rgba(255,240,220,0.9)";
+        context.lineWidth = 3 / this.zoom;
+        context.beginPath();
+        context.arc(bx, by, br, 0, PI * 2);
+        context.stroke();
     }
     drawSpacecraft(ship: Spacecraft) {
         const context = this.context;

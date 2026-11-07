@@ -1,7 +1,7 @@
 # P07-T04 — Black-hole encounter
 
 **Phase:** 07 — Signature celestial visuals  
-**Status:** PENDING  
+**Status:** VERIFIED  
 **Depends on:** Prior tasks in this phase and prior phase gate.
 
 ## Objective
