@@ -1,7 +1,7 @@
 # P06-T03 — LOD and material contracts
 
 **Phase:** 06 — Art direction and layered rendering architecture  
-**Status:** PENDING  
+**Status:** VERIFIED  
 **Depends on:** Prior tasks in this phase and prior phase gate.
 
 ## Objective
