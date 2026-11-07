@@ -28,10 +28,10 @@ Statuses: `PENDING`, `IN_PROGRESS`, `BLOCKED`, `VERIFIED`. Update at each checkp
 
 ## Phase 04 — Ship controls and movement feel
 **Phase status:** PENDING
-- [ ] `P04-T01` — Input action abstraction — `TASKS/PHASE_04/P04-T01_input-action-abstraction.md` — PENDING
-- [ ] `P04-T02` — Ship handling and tuning — `TASKS/PHASE_04/P04-T02_ship-handling-and-tuning.md` — PENDING
-- [ ] `P04-T03` — Touch controls — `TASKS/PHASE_04/P04-T03_touch-controls.md` — PENDING
-- [ ] `P04-T04` — Control playtest — `TASKS/PHASE_04/P04-T04_control-playtest.md` — PENDING
+- [x] `P04-T01` - Input action abstraction - `TASKS/PHASE_04/P04-T01_input-action-abstraction.md` - VERIFIED
+- [x] `P04-T02` - Ship handling and tuning - `TASKS/PHASE_04/P04-T02_ship-handling-and-tuning.md` - VERIFIED
+- [x] `P04-T03` - Touch controls - `TASKS/PHASE_04/P04-T03_touch-controls.md` - VERIFIED
+- [x] `P04-T04` - Control playtest - `TASKS/PHASE_04/P04-T04_control-playtest.md` - VERIFIED
 
 
 ## Phase 05 — Space camera, scale and navigation feel
