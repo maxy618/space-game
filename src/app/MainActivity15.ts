@@ -266,8 +266,8 @@ function Spaaaace(
         midfield.push({
             x: starfieldRng.minmax(0, 512),
             y: starfieldRng.minmax(0, 512),
-            size: starfieldRng.minmax(1.2, 2.8),
-            alpha: starfieldRng.minmax(0.35, 0.95),
+            size: starfieldRng.minmax(0.9, 1.7),
+            alpha: starfieldRng.minmax(0.25, 0.6),
         });
     }
     const dustfield: StarDot[] = [];
@@ -275,8 +275,8 @@ function Spaaaace(
         dustfield.push({
             x: starfieldRng.minmax(0, 512),
             y: starfieldRng.minmax(0, 512),
-            size: starfieldRng.minmax(0.8, 2.2),
-            alpha: starfieldRng.minmax(0.05, 0.16),
+            size: starfieldRng.minmax(0.6, 1.4),
+            alpha: starfieldRng.minmax(0.03, 0.12),
         });
     }
     // Near debris (user 2026-11-08): tiny tumbling rock triangles on a fast
@@ -288,8 +288,8 @@ function Spaaaace(
         debris.push({
             x: starfieldRng.minmax(0, 512),
             y: starfieldRng.minmax(0, 512),
-            size: starfieldRng.minmax(1.2, 4.5),
-            alpha: starfieldRng.minmax(0.12, 0.4),
+            size: starfieldRng.minmax(0.9, 2.5),
+            alpha: starfieldRng.minmax(0.08, 0.25),
             spin: starfieldRng.minmax(-1.2, 1.2),
             seed: starfieldRng.minmax(0, 100),
         });

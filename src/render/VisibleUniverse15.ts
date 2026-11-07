@@ -351,12 +351,13 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
                 context.restore();
             }
 
-            // ember particles drifting behind, fading with age
+            // ember particles drifting behind, fading with age (drift in world
+            // meters so they never outrun the camera at any speed — user report)
             context.lineCap = "round";
             const embers = 10;
             for (let i = 0; i < embers; i++) {
                 const age = (t * (1.6 + i * 0.11) + i * 0.37) % 1;
-                const driftDist = age * baseLen * 1.9;
+                const driftDist = age * 140; // meters, NOT speed-scaled
                 const driftSide = Math.sin(i * 12.9898 + age * 6) * (baseHalf * 0.45 + age * 3);
                 const blink = Math.abs(Math.sin(t * 9 + i * 7.7));
                 const alpha = (1 - age) * (0.25 + 0.55 * exhaustLap) * (0.4 + 0.6 * blink);
