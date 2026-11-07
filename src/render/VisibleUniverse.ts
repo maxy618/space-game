@@ -147,9 +147,48 @@ export class ZoomedDrawScope {
             this.drawGravitationalField(planet);
         }
 
+        // Layered disc (P07-T02): base fill → deterministic regional patches →
+        // limb stroke. Patches break the disc silhouette differently per planet
+        // (tied to its visualSeed), never a palette-swap clone.
+        const px = planet.pos.x;
+        const py = planet.pos.y;
+        const r = planet.radius;
+        // vacuum gradient (limb darker): layered alpha circles, outermost first
+        context.fillStyle = planet.color;
+        context.globalAlpha = 0.24;
+        context.beginPath();
+        context.arc(px, py, r * 1.18, 0, PI * 2);
+        context.fill();
+        context.globalAlpha = 0.45;
+        context.beginPath();
+        context.arc(px, py, r * 1.09, 0, PI * 2);
+        context.fill();
+        context.globalAlpha = 1;
 
-        helper.fillCircle(Colors.Eigengrau, planet.pos.x, planet.pos.y, planet.radius);
-        helper.drawCircle(planet.color, 2 / this.zoom, planet.pos.x, planet.pos.y, planet.radius);
+        helper.fillCircle(Colors.Eigengrau, px, py, r);
+
+        // regional patches: seeded pseudo-random blotches inside the disc
+        const seed = planet.visualSeed;
+        const patchCount = 3 + Math.floor(seed * 3); // 3..5 patches
+        for (let i = 0; i < patchCount; i++) {
+            const a = seed * 6.283 + i * 2.39996; // golden-angle spread
+            const rr = r * 0.3 * ((seed * (i + 1)) % 1 + 0.4);
+            const d = r * 0.45 * ((seed + i * 0.37) % 1);
+            context.fillStyle = planet.color;
+            context.globalAlpha = 0.12 + (i % 2) * 0.06;
+            context.beginPath();
+            context.arc(px + Math.cos(a) * d, py + Math.sin(a) * d, Math.max(rr, r * 0.06), 0, PI * 2);
+            context.fill();
+        }
+        context.globalAlpha = 1;
+
+        // terminator: a soft shadow crescent on the night side
+        context.fillStyle = "rgba(0,0,0,0.22)";
+        context.beginPath();
+        context.arc(px - r * 0.18, py, r * 0.86, 0, PI * 2);
+        context.fill();
+
+        helper.drawCircle(planet.color, 2 / this.zoom, px, py, r);
     }
 
     drawStar(star: Star) {

@@ -90,6 +90,10 @@ export class Planet extends Body {
     flora = "";
     fauna = "";
     explored = false;
+    // Visual identity seed (P07-T02): stable in [0,1), derived from the
+    // system seed. Drives patch tinting — planets differ in structure, not
+    // just hue. Deterministic across runs of the same universe seed.
+    visualSeed = 0;
     private readonly orbitRadius: number;
     constructor(
         orbitCenter: Vec2,
@@ -290,6 +294,7 @@ export class Universe extends Simulator {
                 "created planet", p, "with period", period, "and vel", speed
             );
             p.id = it + 1; // stable id 1..N, assigned in creation order (pre-sort)
+            p.visualSeed = this.rngForInit.float(); // deterministic patch seed
             p.description = this.namer.describePlanet(this.rngForInit);
             p.atmosphere = this.namer.describeAtmo(this.rngForInit);
             p.flora = this.namer.describeLife(this.rngForInit);
@@ -476,6 +481,7 @@ export class Universe extends Simulator {
                 pos: { x: p.pos.x, y: p.pos.y },
                 speed: p.speed,
                 color: p.color,
+                visualSeed: p.visualSeed,
                 explored: p.explored,
                 atmosphere: p.atmosphere,
                 description: p.description,
@@ -517,6 +523,7 @@ export class Universe extends Simulator {
             const p = new Planet(star.pos, pd.radius, new Vec2(pd.pos.x, pd.pos.y), pd.speed, pd.color);
             p.id = pd.id;
             p.name = pd.name;
+            p.visualSeed = pd.visualSeed ?? 0;
             p.explored = pd.explored;
             p.atmosphere = pd.atmosphere;
             p.description = pd.description;
