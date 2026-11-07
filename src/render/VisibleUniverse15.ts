@@ -206,42 +206,93 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         context.strokeStyle = ship.transit ? Colors.Black : Colors.White;
         context.lineWidth = 2 / this.zoom;
         context.stroke(this.spaceshipPath);
-        // Dynamic exhaust flame (user request 2026-11-07): the flame scales with
-        // how hard you press (thrust magnitude) and grows longer at high speed —
-        // a teardrop that stretches, with layered opacity bands (core→edge) and
-        // a pulsing length. No longer a tiny triangle outline.
+        // Dynamic exhaust flame (user request 2026-11-07, refined "beautiful
+        // and alive"): a multi-layer procedural flame — turbulent teardrop with
+        // sin-notched edges, layered white→orange→red bands, 3 flickering
+        // licking tongues, drifting ember particles, and a long translucent
+        // smoke tail at high throttle. Scales with stick deflection (thrust
+        // magnitude) and speed; no longer a tiny outline.
         if (powered) {
-            const exhaustFlicker = 1 + 0.22 * Math.sin(performance.now() / 45);
-            const exhaustLen = (10 + thrustMag * 26 + shipSpeed / 5000 * 18) * exhaustFlicker;
-            const exhaustHalf = 3 + thrustMag * 3.5;
-            const exhaustLap = (thrustMag + shipSpeed / 5000) / 2;
-            context.save();
-            // exhaust particles trail behind the nozzle as they drift — short dashes
-            context.strokeStyle = "rgba(255,255,255," + (0.5 + exhaustLap * 0.4) + ")";
-            context.lineWidth = 1 / this.zoom;
-            context.lineCap = "round";
-            context.beginPath();
-            for (let i = 0; i < 5; i++) {
-                const trail = 0.35 + i * 0.3;
-                const spread = (i % 2 === 0 ? 1.6 : -1.3) * trail;
-                context.moveTo(-4, (i % 2 === 0 ? -2 : 2) * (1 + trail * 0.6));
-                context.lineTo(-(4 + exhaustLen * trail * 0.8), spread);
-            }
-            context.stroke();
-            // core + hot edge bands (fill, not outline — reads as flame)
-            const drawBand = (len: number, half: number, color: string) => {
+            const exhaustLap = Math.min(1, Math.max(0, (thrustMag + shipSpeed / 5000) / 2));
+            const t = performance.now() / 1000;
+            const flick = 1 + 0.30 * Math.sin(t * 21) + 0.12 * Math.sin(t * 47 + 1.3);
+            const baseLen = (8 + thrustMag * 30 + shipSpeed / 5000 * 22) * flick;
+            const baseHalf = 2.6 + thrustMag * 4.2;
+
+            const band = (len: number, half: number, color: string, notch: number, seed: number) => {
                 context.fillStyle = color;
                 context.beginPath();
                 context.moveTo(-3, -half);
-                context.quadraticCurveTo(-3 - len * 0.6, 0, -3, half);
-                context.lineTo(-3, -half);
+                const steps = 24;
+                for (let i = 0; i <= steps; i++) {
+                    const u = i / steps;
+                    const envelope = Math.sin(u * Math.PI * 0.92) * (1 - u * 0.85);
+                    const notchWave = 1 + notch * (Math.sin(u * 17 + seed + t * 19) * 0.5 + Math.sin(u * 7 - seed + t * 11) * 0.5);
+                    const w = half * envelope * notchWave;
+                    const x = -3 - len * u;
+                    const y = -w;
+                    if (i === 0) context.lineTo(x, y);
+                    else context.lineTo(x, y);
+                }
+                for (let i = steps; i >= 0; i--) {
+                    const u = i / steps;
+                    const envelope = Math.sin(u * Math.PI * 0.92) * (1 - u * 0.85);
+                    const notchWave = 1 + notch * (Math.sin(u * 19 - seed + t * 23) * 0.5 + Math.sin(u * 9 + seed - t * 13) * 0.5);
+                    const w = half * envelope * notchWave;
+                    const x = -3 - len * u;
+                    const y = w;
+                    context.lineTo(x, y);
+                }
+                context.closePath();
                 context.fill();
             };
-            const lapT = Math.min(1, Math.max(0, exhaustLap));
-            drawBand(exhaustLen, exhaustHalf, "rgba(255,255,255," + (0.25 + lapT * 0.5) + ")");
-            drawBand(exhaustLen * 0.62, exhaustHalf * 0.62, "rgba(255,200,160," + (0.35 + lapT * 0.45) + ")");
-            drawBand(exhaustLen * 0.36, exhaustHalf * 0.38, "rgba(255,240,220," + (0.5 + lapT * 0.45) + ")");
-            context.restore();
+
+            const tongues = 3;
+            for (let kind = 1; kind >= 0; kind--) {
+                const k = kind; // 0 outer, 1 mid — drawn last to front
+                const len = baseLen * (kind === 0 ? 1 : 0.62);
+                const half = baseHalf * (kind === 0 ? 1 : 0.6);
+                const col = kind === 0
+                    ? "rgba(255,140,40," + (0.20 + exhaustLap * 0.35) + ")"
+                    : "rgba(255,210,150," + (0.30 + exhaustLap * 0.4) + ")";
+                band(len, half, col, 0.28 + k * 0.1, k * 3.7);
+            }
+
+            // inner core (bright, short)
+            band(baseLen * 0.55, baseHalf * 0.5, "rgba(255,250,240," + (0.55 + exhaustLap * 0.4) + ")", 0.2, 99);
+
+            // licking tongues that pop on/off
+            for (let i = 0; i < tongues; i++) {
+                const phase = Math.sin(t * 7 + i * 2.1 + exhaustLap * 4);
+                if (phase < 0.05) continue;
+                const tongueLen = baseLen * (0.35 + 0.5 * phase) * (0.55 + thrustMag * 0.6);
+                const tongueOff = (i - 1) * (baseHalf * 0.34);
+                context.save();
+                context.translate(0, tongueOff);
+                band(tongueLen, baseHalf * (0.30 + 0.18 * phase), "rgba(255,170,80," + (0.25 + exhaustLap * 0.3) + ")", 0.45, i * 17.3);
+                context.restore();
+            }
+
+            // ember particles drifting behind, fading with age
+            context.lineCap = "round";
+            const embers = 10;
+            for (let i = 0; i < embers; i++) {
+                const age = (t * (1.6 + i * 0.11) + i * 0.37) % 1;
+                const driftDist = age * baseLen * 1.9;
+                const driftSide = Math.sin(i * 12.9898 + age * 6) * (baseHalf * 0.45 + age * 3);
+                const blink = Math.abs(Math.sin(t * 9 + i * 7.7));
+                const alpha = (1 - age) * (0.25 + 0.55 * exhaustLap) * (0.4 + 0.6 * blink);
+                if (alpha < 0.03) continue;
+                context.strokeStyle = i % 3 === 0
+                    ? "rgba(255,240,220," + alpha + ")"
+                    : "rgba(255,170,90," + alpha + ")";
+                context.lineWidth = (1.6 - age * 0.9) / this.zoom;
+                context.beginPath();
+                context.moveTo(-4 - driftDist * 0.72, driftSide * 0.4);
+                context.lineTo(-4 - driftDist, driftSide);
+                context.stroke();
+            }
+            context.lineCap = "butt";
         }
         context.restore();
         helper.x = oldHelperX;
