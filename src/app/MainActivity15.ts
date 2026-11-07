@@ -45,7 +45,7 @@ import { FlightStick } from "../input/FlightStick";
 import { InputActionLayer } from "../input/InputActions";
 import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
-import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M } from "../camera/Camera";
+import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M, decayKick, kickMetersForScreenPx } from "../camera/Camera";
 import { newRandom } from "../core/RandomKt";
 
 const TEST_UNIVERSE = false
@@ -223,6 +223,17 @@ function Spaaaace(
     let chaseY = 0;
     let chaseInitialized = false;
 
+    // Event-driven camera feedback (P05-T04): short, self-terminating kicks
+    // on landing and on discovering a planet. Reduced-motion users get none.
+    const reducedMotion = typeof window !== "undefined"
+        && typeof window.matchMedia === "function"
+        && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let kickX = 0;
+    let kickY = 0;
+    const KICK_DECAY_RATE = 6; // per second → ~0.5 s visible kick
+    let prevLanding = false;
+    let prevDiscovery: number | null = null;
+
     // Deterministic starfield (P05-T03): seeded once per scene, phase-locked
     // to camera translation only (never zoom-scaled), wrapped in 512 px tiles.
     const STARFIELD_SEED = 123456789n;
@@ -340,8 +351,29 @@ function Spaaaace(
                     chaseX = chased.centerX;
                     chaseY = chased.centerY;
                 }
-                cameraOffsetX = -chaseX;
-                cameraOffsetY = -chaseY;
+
+                // Kick bookkeeping (P05-T04): landing and discovery events
+                // inject short offsets; the kick decays to exact zero.
+                if (!reducedMotion) {
+                    const landingNow = u.ship.landing !== null;
+                    if (landingNow && !prevLanding) {
+                        kickX += kickMetersForScreenPx(2.5, cameraZoom) * (Math.random() < 0.5 ? -1 : 1);
+                        kickY += kickMetersForScreenPx(2.5, cameraZoom) * (Math.random() < 0.5 ? -1 : 1);
+                    }
+                    prevLanding = landingNow;
+                    const discId = u.latestDiscovery ? u.latestDiscovery.id : null;
+                    if (discId !== null && discId !== prevDiscovery) {
+                        kickY += kickMetersForScreenPx(2, cameraZoom);
+                    }
+                    prevDiscovery = discId;
+                    if (u.dt > 0) {
+                        const decayed = decayKick({ x: kickX, y: kickY }, u.dt, KICK_DECAY_RATE);
+                        kickX = decayed.x;
+                        kickY = decayed.y;
+                    }
+                }
+                cameraOffsetX = -(chaseX + kickX);
+                cameraOffsetY = -(chaseY + kickY);
             } else {
                 cameraOffsetX = cameraOffsetY = 0;
                 chaseInitialized = false;

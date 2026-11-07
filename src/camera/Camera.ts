@@ -171,6 +171,29 @@ export const STARFIELD_PARALLAX_PX_PER_M = 0.08;
 /** Foreground dust: moves faster than the world plane (hyper-parallax). */
 export const DUST_PARALLAX_PX_PER_M = 1.3;
 
+/** Event-driven camera feedback (decay kick). */
+export interface CameraKick {
+    x: number; // meters offset
+    y: number;
+}
+
+/**
+ * Exponential kick decay; snaps to exact zero below 0.5 m (no eternal
+ * sub-pixel drift, clean termination guaranteed).
+ */
+export function decayKick(kick: CameraKick, dt: number, rate: number): CameraKick {
+    const k = Math.exp(-rate * dt);
+    const x = kick.x * k;
+    const y = kick.y * k;
+    const zero = Math.abs(x) < 0.5 && Math.abs(y) < 0.5;
+    return { x: zero ? 0 : x, y: zero ? 0 : y };
+}
+
+/** Convert a desired screen-px kick into meters at the current zoom. */
+export function kickMetersForScreenPx(targetPx: number, zoomPxPerM: number): number {
+    return targetPx / zoomPxPerM;
+}
+
 /** Wrap a screen-space coordinate into a repeating tile (topology-safe). */
 export function wrapTile(v: number, tile: number): number {
     return ((v % tile) + tile) % tile;
