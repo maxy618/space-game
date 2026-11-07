@@ -979,8 +979,9 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     }
     function updateScanFx() {
         const s = universe.scan;
-        // camera pull-out while the wave is visible (smooth in/out)
-        const wantPull = s.waveAge >= 0 ? 1.35 : 1;
+        // The camera pull starts only once the wave is underway, and is mild
+        // enough that the view never reveals more than the scanner radius.
+        const wantPull = s.waveAge >= 0.8 ? 1.18 : 1;
         scanPull = expSmooth(scanPull, wantPull, universe.dt, 2.2);
         // button cooldown sweep
         if (scanButton) {
@@ -1066,6 +1067,18 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                     (a.pos.x - star.pos.x) * scale - 1,
                     (a.pos.y - star.pos.y) * scale - 1, 2, 2);
             }
+        }
+        // Cargo traffic: rotated square markers in the ship's hue.
+        for (const cargo of universe.cargoShips) {
+            if (!cargo.scanned) continue;
+            const px = (cargo.pos.x - star.pos.x) * scale;
+            const py = (cargo.pos.y - star.pos.y) * scale;
+            ctx2.save();
+            ctx2.translate(px, py);
+            ctx2.rotate(Math.PI / 4);
+            ctx2.fillStyle = cargo.hue;
+            ctx2.fillRect(-3.4, -3.4, 6.8, 6.8);
+            ctx2.restore();
         }
         // ship marker: arrow + velocity vector
         const sx = (universe.ship.pos.x - star.pos.x) * scale;
@@ -1270,6 +1283,9 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             liveSparks: universe.countLiveSparksPublic(),
             scan: { cooldown: universe.scan.cooldown, waveAge: universe.scan.waveAge },
             scannedCount: universe.planets.filter(p => p.scanned).length,
+            cargoCount: universe.cargoShips.length,
+            scannedCargo: universe.cargoShips.filter(c => c.scanned).length,
+            cargo: universe.cargoShips.map(c => ({ id: c.id, x: c.pos.x, y: c.pos.y, angle: c.angle, t: c.t, dir: c.dir })),
             route: routeTarget === null ? null : { id: routeTarget.id, active: routePilot.active, phase: routePilot.phase },
         };
     }

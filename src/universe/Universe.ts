@@ -366,6 +366,7 @@ export class Universe extends Simulator {
         this.spawnAsteroids();
         this.planets.sort((a, b) => a.pos.distance(this.star.pos) - b.pos.distance(this.star.pos));
         this.planets.forEach((planet, idx) => planet.name = (systemName + " " + (idx + 1)));
+        this.spawnCargoShips();
         this.addEntity(this.star);
 
         this.ship = new Spacecraft();
@@ -424,7 +425,55 @@ export class Universe extends Simulator {
             }
         }
 
+        // Keep traffic lanes attached to the orbiting planet endpoints.
+        for (const cargo of this.cargoShips) {
+            cargo.laneA = this.planets[cargo.fromIdx]?.pos ?? null;
+            cargo.laneB = this.planets[cargo.toIdx]?.pos ?? null;
+        }
+
         super.updateAll(dt, entities);
+    }
+
+    /**
+     * Ambient cargo traffic (user 2026-11-09): 4 haulers on deterministic
+     * planet-to-planet lanes. Not saved — regenerated from the world seed.
+     */
+    cargoShips: CargoShip[] = [];
+
+    spawnCargoShips() {
+        if (this.planets.length < 2) return;
+        const rng = this.rngForInit;
+        const n = 4;
+        for (let i = 0; i < n; i++) {
+            const ship = new CargoShip();
+            ship.id = 3001 + i;
+            ship.fromIdx = i % this.planets.length;
+            const extraStep = this.planets.length > 2 ? rng.minmaxInt(0, this.planets.length - 2) : 0;
+            ship.toIdx = (i + 1 + extraStep) % this.planets.length;
+            if (ship.toIdx === ship.fromIdx) ship.toIdx = (ship.fromIdx + 1) % this.planets.length;
+            ship.t = rng.float();
+            ship.dir = rng.float() < 0.5 ? 1 : -1;
+            ship.cruise = rng.minmax(700, 1300);
+            ship.laneOffset = rng.minmax(-4000, 4000);
+            ship.hue = rng.float() < 0.5 ? "#D8A84E" : "#8FB8D8";
+            // Endpoints are attached to planet orbits in updateAll; snap to the
+            // starting point so the first frame is not measured from (0,0).
+            const a = this.planets[ship.fromIdx].pos;
+            const b = this.planets[ship.toIdx].pos;
+            const len = Math.hypot(b.x - a.x, b.y - a.y);
+            const px = a.x + (b.x - a.x) * ship.t;
+            const py = a.y + (b.y - a.y) * ship.t;
+            const nx = len > 1 ? -(b.y - a.y) / len : 0;
+            const ny = len > 1 ? (b.x - a.x) / len : 0;
+            ship.pos.x = px + nx * ship.laneOffset;
+            ship.pos.y = py + ny * ship.laneOffset;
+            ship.opos.x = ship.pos.x;
+            ship.opos.y = ship.pos.y;
+            ship.laneA = a;
+            ship.laneB = b;
+            this.cargoShips.push(ship);
+            this.addEntity(ship);
+        }
     }
 
     /**
@@ -665,6 +714,8 @@ export class Universe extends Simulator {
             u.planets.push(p);
             u.addEntity(p);
         }
+        // Ambient traffic is regenerated from the seed, like asteroids.
+        u.spawnCargoShips();
 
         const ship = new Spacecraft();
         ship.id = data.ship.id;
@@ -762,8 +813,77 @@ export class Spark extends Body implements Removable {
     }
 }
 
-export class Track {
-    positions = new Deque<Vec2>(UniverseConst.TRACK_LENGTH);
+/**
+ * NPC cargo ship (user 2026-11-09): ambient space traffic. Hauls between
+ * two planets of the system along a straight lane (deterministic from the
+ * world seed, NOT saved — regenerated like asteroids). Visible to the
+ * radar as amber dots; the scanner range check applies like other bodies.
+ * Not a physics body: position is driven along the lane each step and
+ * opos is synced so the derived velocity stays sane for the radar.
+ */
+export class CargoShip extends Body {
+    fromIdx = 0;
+    toIdx = 1;
+    /** Route progress 0..1 (from → to). */
+    t = 0;
+    /** Lane direction: +1 heading to `to`, -1 heading home. */
+    dir = 1;
+    cruise = 900;
+    /** Perpendicular lane offset (m) — traffic doesn't overlap. */
+    laneOffset = 0;
+    /** Per-ship hue for the radar dot. */
+    hue = "#D8A84E";
+    /** Revealed by the scanner (radar visibility). */
+    scanned = false;
+
+    constructor() {
+        super("CargoShip");
+        this.collides = false;
+        this.radius = 60;
+        this.mass = 400;
+    }
+
+    update(sim: Simulator, dt: number) {
+        if (dt > 0) {
+            const a = this.laneA;
+            const b = this.laneB;
+            if (a !== null && b !== null) {
+                const len = Math.hypot(b.x - a.x, b.y - a.y);
+                if (len > 1) {
+                    this.t += (this.dir * this.cruise * dt) / len;
+                    if (this.t >= 1) { this.t = 1; this.dir = -1; }
+                    else if (this.t <= 0) { this.t = 0; this.dir = 1; }
+                    const tt = this.t;
+                    // current lane point + perpendicular offset
+                    const px = a.x + (b.x - a.x) * tt;
+                    const py = a.y + (b.y - a.y) * tt;
+                    const nx = -(b.y - a.y) / len;
+                    const ny = (b.x - a.x) / len;
+                    const oldX = this.pos.x;
+                    const oldY = this.pos.y;
+                    this.pos.x = px + nx * this.laneOffset;
+                    this.pos.y = py + ny * this.laneOffset;
+                    // derived velocity (position-based dynamics) + heading
+                    this.velocity.x = dt > 0 ? (this.pos.x - oldX) / dt : 0;
+                    this.velocity.y = dt > 0 ? (this.pos.y - oldY) / dt : 0;
+                    this.angle = Math.atan2(this.pos.y - oldY, this.pos.x - oldX);
+                }
+            }
+        }
+        Vec2_copy(this.opos, this.pos);
+    }
+
+    postUpdate(_sim: Simulator, _dt: number): void {
+        // CargoShips are kinematically driven in update(); do not let the
+        // generic Body integration derive a different velocity from opos.
+    }
+
+    /** Lane endpoints, refreshed lazily from the planet orbits. */
+    laneA: { x: number; y: number } | null = null;
+    laneB: { x: number; y: number } | null = null;
+}
+
+export class Track {    positions = new Deque<Vec2>(UniverseConst.TRACK_LENGTH);
     private angles = new Deque<number>(UniverseConst.TRACK_LENGTH);
     /** Sim time (seconds) each point was recorded — for lifetime expiry. */
     private times = new Deque<number>(UniverseConst.TRACK_LENGTH);

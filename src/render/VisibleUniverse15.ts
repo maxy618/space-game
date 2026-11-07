@@ -37,7 +37,7 @@ import { Namer15 } from "../core/Namer15";
 import { createPolygon, drawPolygon, parseSvgPathData } from "../core/PathTools";
 import { Constraint, Container, Simulator } from "../core/Physics";
 import { chooseRandom } from "../core/Randomness";
-import { Asteroid, Landing, Planet, Spacecraft, Spark, SparkStyle, Star, StarClass, StarClasses, Track, UniverseConst } from "../universe/Universe";
+import { Asteroid, CargoShip, Landing, Planet, Spacecraft, Spark, SparkStyle, Star, StarClass, StarClasses, Track, UniverseConst } from "../universe/Universe";
 import { starHeatStep, STAR_CORONA_FACTOR } from "../universe/StarHeat";
 import { createScanState, triggerScan, stepScan, scanWaveRadius, SCAN_WAVE_SECONDS, SCAN_RADIUS, type ScannableBody } from "../universe/Scanner";
 import { Landing15, Spacecraft15 } from "../universe/Universe15";
@@ -212,6 +212,8 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
                 this.drawSpark(it);
             } else if (it instanceof Asteroid) {
                 this.drawAsteroid(it);
+            } else if (it instanceof CargoShip) {
+                this.drawCargoShip(it);
             } else if (it instanceof Planet) {
                 this.drawPlanet(it);
             }
@@ -274,6 +276,56 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             context.arc(Math.cos(ang) * d, Math.sin(ang) * d, cr, 0, PI * 2);
             context.fill();
         }
+        context.restore();
+    }
+
+    /**
+     * NPC cargo ships (user 2026-11-09): long hauler silhouette with a pale
+     * cargo spine, amber/blue running light, and faint engine streak.
+     */
+    drawCargoShip(ship: CargoShip) {
+        const context = this.context;
+        const helper = this.helper;
+        if (!helper.width) return;
+        const left = helper.x;
+        const top = helper.y;
+        const right = left + helper.width;
+        const bottom = top + helper.height;
+        if (ship.pos.x + 140 < left || ship.pos.x - 140 > right
+            || ship.pos.y + 80 < top || ship.pos.y - 80 > bottom) return;
+        // The camera zoom can make a 118 m hull sub-pixel. Scale geometry in
+        // screen space so a hauler remains recognizable at flight range.
+        const hullLengthWorld = 118;
+        const hullScale = Math.max(1, 44 / (hullLengthWorld * this.zoom));
+        context.save();
+        context.translate(ship.pos.x, ship.pos.y);
+        context.rotate(ship.angle);
+        context.scale(hullScale, hullScale);
+        context.fillStyle = "rgba(70,66,74,0.92)";
+        context.strokeStyle = "rgba(226,204,160,0.65)";
+        context.lineWidth = 1.4 / Math.max(this.zoom, 0.000001) / hullScale;
+        context.beginPath();
+        context.moveTo(58, 0);
+        context.lineTo(26, -13);
+        context.lineTo(-48, -11);
+        context.lineTo(-60, 0);
+        context.lineTo(-48, 11);
+        context.lineTo(26, 13);
+        context.closePath();
+        context.fill();
+        context.stroke();
+        context.fillStyle = ship.hue;
+        context.fillRect(-34, -4, 52, 8);
+        context.fillStyle = "rgba(255,255,255,0.86)";
+        context.fillRect(40, -4, 7, 8);
+        context.strokeStyle = "rgba(220,190,130,0.28)";
+        context.lineWidth = 2.2 / Math.max(this.zoom, 0.000001) / hullScale;
+        context.beginPath();
+        context.moveTo(-60, -5);
+        context.lineTo(-92, -5);
+        context.moveTo(-60, 5);
+        context.lineTo(-92, 5);
+        context.stroke();
         context.restore();
     }
     /**
@@ -776,6 +828,7 @@ export class VisibleUniverse15 extends VisibleUniverse {
         this.spawnAsteroids();
         this.planets.sort((a, b) => a.pos.distance(this.star.pos) - b.pos.distance(this.star.pos));
         this.planets.forEach((planet, idx) => planet.name = (systemName + " " + (idx + 1)));
+        this.spawnCargoShips();
         this.addEntity(this.star);
 
         this.ship = new Spacecraft15();
@@ -815,6 +868,13 @@ export class VisibleUniverse15 extends VisibleUniverse {
             if (p.scanned) continue;
             if (p.pos.distance(shipPos) <= SCAN_RADIUS) {
                 p.scanned = true;
+                revealed++;
+            }
+        }
+        for (const ship of this.cargoShips) {
+            if (ship.scanned) continue;
+            if (ship.pos.distance(shipPos) <= SCAN_RADIUS) {
+                ship.scanned = true;
                 revealed++;
             }
         }
