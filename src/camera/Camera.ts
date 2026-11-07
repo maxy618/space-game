@@ -121,3 +121,42 @@ export function chaseCamera(cam: CameraTarget, shipX: number, shipY: number, dt:
 export function clampZoom(zoom: number, min: number, max: number): number {
     return clamp(zoom, min, max);
 }
+
+/**
+ * Velocity-driven zoom factor (visible-space multiplier), extracted from
+ * MainActivity15's Spaaaace camera (P04-T01/P05-T02). Pure: the same speed
+ * always maps to the same factor.
+ *
+ * One smooth curve, no kinks: both halves flatten at the junction
+ * (speed == refSpeed), so the zoom glides instead of stepping through two
+ * stages.
+ *
+ *  - speed = 0            → nearFactor (closer)
+ *  - speed = refSpeed     → 1.0 exactly (the original reference view)
+ *  - speed = maxSpeed     → farFactor (farther)
+ */
+export function velocityZoomFactor(
+    speed: number,
+    nearFactor: number,
+    farFactor: number,
+    refSpeed: number,
+    maxSpeed: number,
+): number {
+    let factor: number;
+    if (speed <= refSpeed) {
+        const x = clamp(speed / refSpeed, 0, 1);
+        factor = 1 - (1 - nearFactor) * (1 - x) * (1 - x);
+    } else {
+        const t = clamp((speed - refSpeed) / (maxSpeed - refSpeed), 0, 1);
+        factor = 1 + (farFactor - 1) * t * t;
+    }
+    return factor;
+}
+
+/** Smooth follow rate (per second) used by the ship-chase camera. */
+export const CAMERA_FOLLOW_RATE = 30;
+
+/** Worst-case steady-state chase lag in meters at vmax (v / rate). */
+export function chaseLagMeters(speed: number): number {
+    return speed / CAMERA_FOLLOW_RATE;
+}

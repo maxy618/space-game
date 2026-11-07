@@ -45,6 +45,7 @@ import { FlightStick } from "../input/FlightStick";
 import { InputActionLayer } from "../input/InputActions";
 import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
+import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor } from "../camera/Camera";
 
 const TEST_UNIVERSE = false
 
@@ -215,6 +216,11 @@ function Spaaaace(
     let cameraZoom = camZoom;
     let cameraOffsetX = 0;
     let cameraOffsetY = 0;
+    // Smoothed follow center (P05-T02): the chase lives in the camera layer,
+    // never in physics. The ship remains the source of truth.
+    let chaseX = 0;
+    let chaseY = 0;
+    let chaseInitialized = false;
 
     const centerFracX = 0.5;
     const centerFracY = 0.5;
@@ -246,17 +252,9 @@ function Spaaaace(
             // SPEED_ZOOM_REF (medium) -> exactly the original view,
             // CRAFT_SPEED_LIMIT (max) -> SPEED_ZOOM_FAR (farther).
             const speed = u.ship.velocity.mag();
-            // One smooth curve, no kinks: both halves flatten at the junction
-            // (speed == SPEED_ZOOM_REF), so the zoom glides exponentially
-            // instead of stepping through two stages.
-            let factor;
-            if (speed <= SPEED_ZOOM_REF) {
-                const x = clamp(speed / SPEED_ZOOM_REF, 0, 1);
-                factor = 1 - (1 - SPEED_ZOOM_NEAR) * (1 - x) * (1 - x);
-            } else {
-                const t = clamp((speed - SPEED_ZOOM_REF) / (UniverseConst.CRAFT_SPEED_LIMIT - SPEED_ZOOM_REF), 0, 1);
-                factor = lerp(1, SPEED_ZOOM_FAR, t * t);
-            }
+            // One smooth curve, no kinks (extracted to Camera.ts, P05-T02):
+            // both halves flatten at the junction (speed == SPEED_ZOOM_REF).
+            const factor = velocityZoomFactor(speed, SPEED_ZOOM_NEAR, SPEED_ZOOM_FAR, SPEED_ZOOM_REF, UniverseConst.CRAFT_SPEED_LIMIT);
             const targetZoom = (camZoom / CAMERA_DISTANCE) / factor;
             // Clamp to a positive range: a zero/negative cameraZoom would hang the
             // gridStep while-loop below and freeze the whole page.
@@ -266,10 +264,30 @@ function Spaaaace(
         if (!TOUCH_CAMERA_PAN) {
             const follow = u.follow;
             if (follow !== null) {
-                cameraOffsetX = -follow.pos.x;
-                cameraOffsetY = -follow.pos.y;
+                // Exponential follow (frame-rate independent chase, P05-T02):
+                // kills the discrete-step jitter of instant follow at low FPS
+                // while keeping a sub-screen-size steady-state lag (≤70 px at
+                // max speed zoomed out; ~0 at rest). On the first frame the
+                // chase snaps to the ship so there is no swoop on load.
+                if (!chaseInitialized) {
+                    chaseX = follow.pos.x;
+                    chaseY = follow.pos.y;
+                    chaseInitialized = true;
+                } else if (u.dt > 0) {
+                    const chased = chaseCamera(
+                        { centerX: chaseX, centerY: chaseY, followRate: CAMERA_FOLLOW_RATE },
+                        follow.pos.x,
+                        follow.pos.y,
+                        u.dt,
+                    );
+                    chaseX = chased.centerX;
+                    chaseY = chased.centerY;
+                }
+                cameraOffsetX = -chaseX;
+                cameraOffsetY = -chaseY;
             } else {
                 cameraOffsetX = cameraOffsetY = 0;
+                chaseInitialized = false;
             }
         }
 
