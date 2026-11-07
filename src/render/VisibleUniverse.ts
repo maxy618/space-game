@@ -300,7 +300,9 @@ export class ZoomedDrawScope {
             case SparkStyle.LINE:
                 if (spark.opos.x !== 0 || spark.opos.y !== 0) {
                     context.strokeStyle = spark.color;
-                    context.lineWidth = spark.size;
+                    // screen-px floor (user 2026-11-09): a world-unit line
+                    // width vanishes when zoomed out — debris must stay legible
+                    context.lineWidth = Math.max(spark.size, 1 / this.zoom);
                     context.beginPath();
                     context.moveTo(spark.opos.x, spark.opos.y);
                     context.lineTo(spark.pos.x, spark.pos.y);
@@ -320,7 +322,9 @@ export class ZoomedDrawScope {
             case SparkStyle.DOT:
                 context.fillStyle = spark.color;
                 context.beginPath();
-                context.arc(spark.pos.x, spark.pos.y, spark.size, 0, PI * 2);
+                // screen-px floor (user 2026-11-09): world-unit dots vanish
+                // at flight zoom — impact sparks were literally invisible
+                context.arc(spark.pos.x, spark.pos.y, Math.max(spark.size, 1.6 / this.zoom), 0, PI * 2);
                 context.fill();
                 break;
             case SparkStyle.DOT_ABSOLUTE:
@@ -344,24 +348,22 @@ export class ZoomedDrawScope {
     drawTrack(track: Track) {
         const context = this.context;
         if (SIMPLE_TRACK_DRAWING) {
-            // Translucent continuous trail (user 2026-11-08): one path, one
-            // stroke, no per-segment culling — culling mid-path broke the
-            // polyline into random dots at high speed. The whole track costs
-            // a single draw call.
-            if (track.positions.size() < 2) return;
-            context.strokeStyle = "rgba(80, 255, 140, 0.35)";
+            // Barely-visible grey dashes (user 2026-11-09): just enough for
+            // a new player to see the ship moves. Points expire by age —
+            // the tail vanishes far behind the camera while flying.
+            const total = track.size();
+            if (total < 2) return;
+            context.strokeStyle = "rgba(168, 168, 180, 0.10)";
             context.lineWidth = 1.2 / this.zoom;
+            context.setLineDash([4 / this.zoom, 6 / this.zoom]);
             context.beginPath();
             let first = true;
-            track.positions.forEach((point) => {
-                if (first) {
-                    context.moveTo(point.x, point.y);
-                    first = false;
-                } else {
-                    context.lineTo(point.x, point.y);
-                }
+            track.forEachPoint((x, y) => {
+                if (first) { context.moveTo(x, y); first = false; }
+                else context.lineTo(x, y);
             });
             context.stroke();
+            context.setLineDash([]);
         } else {
             if (track.positions.size() < 2) return;
             let prev: Vec2 | null = null;

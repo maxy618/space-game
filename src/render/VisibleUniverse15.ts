@@ -64,7 +64,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             return Number((s >> 11n) & ((1n << 53n) - 1n)) / 9007199254740992;
         };
         const colors = ["#7A6AA0", "#4A7A8A", "#8A6A9A", "#5A8AAA"];
-        return colors.map((color, i) => ({
+        const blobs = colors.map((color, i) => ({
             x: (next() - 0.5) * 60000,
             y: (next() - 0.5) * 60000,
             r: 22000 + next() * 26000,
@@ -75,10 +75,55 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             alpha: 0.08 + 0.04 * (i % 2) + next() * 0.04,
             rr: Array.from({ length: 12 }, () => 0.65 + next() * 0.6),
         }));
+        // GREAT nebula sheets (user 2026-11-09): 3 enormous, ultra-faint
+        // clouds far from the core — encountered occasionally while traveling,
+        // each a different scale and hue. Never tiled, never noisy.
+        const sheets = [
+            { x: -190000, y: 150000, r: 110000, color: "#3A5E7E", alpha: 0.05 },
+            { x: 220000, y: -120000, r: 80000, color: "#6E4E86", alpha: 0.04 },
+            { x: 60000, y: 240000, r: 95000, color: "#3E7E6E", alpha: 0.045 },
+        ];
+        for (const sh of sheets) {
+            blobs.push({
+                ...sh,
+                rot: next() * PI * 2,
+                rr: Array.from({ length: 14 }, () => 0.6 + next() * 0.7),
+            });
+        }
+        return blobs;
     })();
 
+    /**
+     * Impact-ring marker around the threatened body (user 2026-11-08).
+     * Reads the threat from the sim universe (set by the app layer at 10 Hz).
+     * Restrained HUD styling: dashed ring + soft opacity breathing — no glow
+     * effects, the alert must read as instrument, not decoration.
+     */
+    drawImpactThreat(universe: VisibleUniverse15) {
+        const t = universe.impactThreat;
+        if (t === null) return;
+        const context = this.context;
+        const helper = this.helper;
+        if (!helper.width) return;
+        // on-screen cull
+        if (t.x + t.radius * 2 < helper.x || t.x - t.radius * 2 > helper.x + helper.width
+            || t.y + t.radius * 2 < helper.y || t.y - t.radius * 2 > helper.y + helper.height) return;
+        const now = performance.now() / 1000;
+        const col = t.level === "critical" ? "232,72,56" : "214,164,66";
+        const breathe = 0.5 + 0.5 * Math.sin(now * (t.level === "critical" ? 7 : 3.2));
+        context.save();
+        // dashed ring just outside the body silhouette
+        context.strokeStyle = "rgba(" + col + "," + (0.5 + 0.3 * breathe) + ")";
+        context.lineWidth = 2 / this.zoom;
+        context.setLineDash([9 / this.zoom, 7 / this.zoom]);
+        context.beginPath();
+        context.arc(t.x, t.y, t.radius * 1.18 + (2 + 3 * breathe) / this.zoom, 0, PI * 2);
+        context.stroke();
+        context.setLineDash([]);
+        context.restore();
+    }
+
     drawUniverse(universe: VisibleUniverse) {
-        this.drawNebula(); // layer 3 backdrop-under-bodies, before gravity rings
         // Black-hole landmark (P07-T04): the system is not a black hole, but
         // the signature encounter is rendered as a fixed distant landmark at
         // the far side of the playable space so players can fly up to it and
@@ -102,6 +147,9 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
                 this.drawPlanet(it);
             }
         });
+        // runtime object is always VisibleUniverse15 (drawUniverse is
+        // overridden there); the scope API keeps the base type
+        this.drawImpactThreat(universe as VisibleUniverse15);
         const ship = universe.ship as Spacecraft15;
         const autopilot = ship.autopilot;
         if (autopilot !== null && autopilot.enabled) {
@@ -157,50 +205,118 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         }
         context.restore();
     }
+    /**
+     * Nebulae are DETERMINISTIC and STATIC (world-fixed), so each blob is
+     * pre-rendered once into a 256×256 sprite (halo blur baked) and blitted
+     * per frame — a single drawImage, no per-frame shadowBlur (which is
+     * expensive for the huge great-sheets, and a mobile-killer).
+     */
+    private nebulaSprites: Array<HTMLCanvasElement | null> | null = null;
+
+    private buildNebulaSprites() {
+        const dpr = window.devicePixelRatio || 1;
+        const SPRITE_PX = Math.round(256 * dpr);
+        const sprites = this.nebulaBlobs.map(blob => {
+            const canvas = document.createElement("canvas");
+            canvas.width = SPRITE_PX;
+            canvas.height = SPRITE_PX;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return null;
+            // sprite spans [-1.3r, 1.3r] of the blob (halo margin included)
+            const scale = SPRITE_PX / (2.6 * blob.r);
+            ctx.translate(SPRITE_PX / 2, SPRITE_PX / 2);
+            ctx.rotate(blob.rot);
+            // halo pass (blur in sprite px: 0.12 × r in world = 0.312 × SPRITE_PX / 2.6)
+            ctx.shadowColor = blob.color;
+            ctx.shadowBlur = SPRITE_PX * 0.046;
+            ctx.fillStyle = blob.color;
+            ctx.globalAlpha = blob.alpha * 0.7;
+            this.traceNebulaPath(ctx, blob, scale);
+            ctx.fill();
+            // core pass (crisp, translucent)
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = blob.alpha * 0.55;
+            this.traceNebulaPath(ctx, blob, scale);
+            ctx.fill();
+            if (blob.r > 60_000) {
+                // GREAT SHEETS — real-photo composition (user 2026-11-09):
+                // bright inner filaments + dark dust lanes over the base,
+                // all baked into the sprite (draw-time cost stays one blit).
+                ctx.globalCompositeOperation = "lighter";
+                ctx.shadowColor = blob.color;
+                ctx.shadowBlur = SPRITE_PX * 0.03;
+                ctx.fillStyle = blob.color;
+                for (let f = 0; f < 3; f++) {
+                    const fa = (f / 3) * PI * 2 + 0.7;
+                    const fd = blob.r * (0.18 + 0.16 * f) * scale;
+                    const fl = blob.r * (0.34 - f * 0.07) * scale;
+                    ctx.save();
+                    ctx.translate(Math.cos(fa) * fd, Math.sin(fa) * fd * 0.72);
+                    ctx.rotate(fa);
+                    ctx.globalAlpha = blob.alpha * 0.5;
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, fl, fl * 0.22, 0, 0, PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
+                ctx.shadowBlur = 0;
+                ctx.globalCompositeOperation = "destination-out";
+                for (let f = 0; f < 2; f++) {
+                    const fa = PI + (f / 2) * PI + 0.4;
+                    const fd = blob.r * (0.3 + 0.14 * f) * scale;
+                    ctx.save();
+                    ctx.translate(Math.cos(fa) * fd, Math.sin(fa) * fd * 0.72);
+                    ctx.rotate(fa + 0.5);
+                    ctx.globalAlpha = 0.30;
+                    ctx.fillStyle = "black";
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, blob.r * 0.22 * scale, blob.r * 0.07 * scale, 0, 0, PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
+                ctx.globalCompositeOperation = "source-over";
+            }
+            return canvas;
+        });
+        this.nebulaSprites = sprites;
+    }
+
+    /** The irregular squashed polygon of a nebula blob, sprite-scaled. */
+    private traceNebulaPath(ctx: CanvasRenderingContext2D, blob: { r: number; rr: number[] }, scale: number) {
+        const steps = blob.rr.length;
+        ctx.beginPath();
+        for (let i = 0; i <= steps; i++) {
+            const a = (i / steps) * PI * 2;
+            const rr = blob.r * blob.rr[i % steps];
+            const px = Math.cos(a) * rr * scale;
+            const py = Math.sin(a) * rr * 0.72 * scale; // squash → filament feel
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+    }
+
     drawNebula() {
+        if (!this.nebulaSprites) this.buildNebulaSprites();
         const context = this.context;
         const helper = this.helper;
-        if (!helper.width) return;
+        if (!helper.width || !this.nebulaSprites) return;
         const left = helper.x;
         const top = helper.y;
         const right = left + helper.width;
         const bottom = top + helper.height;
-        const dpr = window.devicePixelRatio || 1;
-        for (const blob of this.nebulaBlobs) {
+        const world = helper.width / this.zoom; // visible world span
+        for (let i = 0; i < this.nebulaBlobs.length; i++) {
+            const blob = this.nebulaBlobs[i];
+            const sprite = this.nebulaSprites[i];
+            if (!sprite) continue;
             // cull blobs far outside the visible world rect
-            if (blob.x + blob.r < left || blob.x - blob.r > right
-                || blob.y + blob.r < top || blob.y - blob.r > bottom) continue;
+            if (blob.x + blob.r * 1.3 < left || blob.x - blob.r * 1.3 > right
+                || blob.y + blob.r * 1.3 < top || blob.y - blob.r * 1.3 > bottom) continue;
+            const size = blob.r * 2.6 * this.zoom;
             context.save();
-            context.translate(blob.x, blob.y);
-            context.rotate(blob.rot);
-            // Soft-edged nebula (user 2026-11-08): a shadow-blur halo under
-            // a low-alpha core replaces the hard polygon fill. Canvas
-            // shadows ignore the world transform, so the blur is set in
-            // device px and stays proportional on screen at every zoom.
-            const blurPx = clamp(blob.r * this.zoom * dpr * 0.12, 12, 140);
-            const steps = blob.rr.length;
-            const tracePath = () => {
-                context.beginPath();
-                for (let i = 0; i <= steps; i++) {
-                    const a = (i / steps) * PI * 2;
-                    const rr = blob.r * blob.rr[i % steps];
-                    const px = Math.cos(a) * rr;
-                    const py = Math.sin(a) * rr * 0.72; // squash → filament feel
-                    if (i === 0) context.moveTo(px, py);
-                    else context.lineTo(px, py);
-                }
-                context.closePath();
-            };
-            context.shadowColor = blob.color;
-            context.shadowBlur = blurPx;
-            context.fillStyle = blob.color;
-            context.globalAlpha = blob.alpha * 0.7;
-            tracePath();
-            context.fill(); // halo pass (blurred)
-            context.shadowBlur = 0;
-            context.globalAlpha = blob.alpha * 0.55;
-            tracePath();
-            context.fill(); // core pass (crisp, translucent)
+            context.globalAlpha = 1; // alpha baked into the sprite
+            context.drawImage(sprite, blob.x - size / 2, blob.y - size / 2, size, size);
             context.restore();
         }
         context.globalAlpha = 1;
@@ -480,6 +596,13 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
 }
 
 export class VisibleUniverse15 extends VisibleUniverse {
+    /**
+     * Current collision-warning target (user 2026-11-08), set by the app
+     * layer from CollisionPredict (~10 Hz; null = no threat). Read by the
+     * draw scope to render the impact ring.
+     */
+    impactThreat: { x: number; y: number; radius: number; tti: number; level: "warning" | "critical" } | null = null;
+
     initTest() {
         const systemName = "TEST SYSTEM"
         this.star =
@@ -575,7 +698,7 @@ export class VisibleUniverse15 extends VisibleUniverse {
             this.planets.push(p);
             this.addEntity(p);
         }
-        this.spawnAsteroids(120);
+        this.spawnAsteroids();
         this.planets.sort((a, b) => a.pos.distance(this.star.pos) - b.pos.distance(this.star.pos));
         this.planets.forEach((planet, idx) => planet.name = (systemName + " " + (idx + 1)));
         this.addEntity(this.star);
@@ -718,7 +841,78 @@ export class VisibleUniverse15 extends VisibleUniverse {
         ship.track = new Track();
     }
 
+    /**
+     * Impact-FX budget (user 2026-11-08): while the hull grinds against an
+     * obstacle with thrust held, sparks spawn at most once per cooldown,
+     * scaled by the closing speed, and subject to a global live-particle
+     * cap. The old behavior fired 10 new Sparks on EVERY solve frame —
+     * ~600–1200 live particles, each with its own draw call, collapsing
+     * the FPS exactly when the player leaned on a rock (and the falling
+     * FPS multiplied sub-steps, spawning even more — a runaway loop).
+     */
+    private impactFxCooldown = 0;
+    /** Global live-particle budget shared by impact FX and destruction. */
+    static readonly MAX_LIVE_SPARKS = 240;
+
+    private countLiveSparks(): number {
+        let n = 0;
+        this.entities.forEach(e => { if (e instanceof Spark) n++; });
+        return n;
+    }
+
+    /** Public read for the debug state (QA). */
+    countLiveSparksPublic(): number {
+        return this.countLiveSparks();
+    }
+
+    /**
+     * Spawn a velocity-scaled impact burst at (x, y) — shared by planet and
+     * asteroid contacts. Called only when the FX cooldown has elapsed.
+     * Visibility matters (user 2026-11-09): sparks fly OUT of the surface
+     * (outward cone around the surface normal) with a fraction of the
+     * reflected closing velocity — the old sparks inherited 0.8 × ship
+     * velocity and simply traveled WITH the ship, invisible. Warm palette,
+     * bigger dots, short lifetime: readable, not noisy.
+     */
+    private spawnImpactSparks(impactX: number, impactY: number, closingSpeed: number, normalAngle: number, shipVx: number, shipVy: number) {
+        const budget = VisibleUniverse15.MAX_LIVE_SPARKS - this.countLiveSparks();
+        if (budget <= 0) return;
+        const count = Math.min(
+            budget,
+            clamp(Math.round(3 + closingSpeed / 250), 3, 10),
+        );
+        const palette = ["#FFFFFF", "#FFE9C8", "#FFC46A", "#FF9A4A"];
+        const cone = 2.1; // ±120° around the outward normal
+        for (let it = 0; it < count; it++) {
+            const spark = new Spark(
+                this.rng.minmax(0.4, 1.2),
+                false,
+                0,
+                SparkStyle.DOT,
+                palette[it % palette.length],
+                1.6
+            );
+            spark.pos.x = impactX;
+            spark.pos.y = impactY;
+            Vec2_copy(spark.opos, spark.pos);
+            // outward ejection: cone around the surface normal, speed scales
+            // with the impact energy, plus a light bounce off the hull motion
+            const ejection = this.rng.minmax(60, 160 + closingSpeed * 0.25);
+            Vec2_makeWithAngleMag(
+                spark.velocity,
+                normalAngle + this.rng.minmax(-cone / 2, cone / 2),
+                ejection
+            );
+            spark.velocity.x += shipVx * 0.35;
+            spark.velocity.y += shipVy * 0.35;
+            this.addEntity(spark);
+        }
+    }
+
     solveAll(dt: number, constraints: Set<Constraint>) {
+        // tick the impact-FX cooldown
+        if (this.impactFxCooldown > 0) this.impactFxCooldown = Math.max(0, this.impactFxCooldown - dt);
+
         // Stellar hazard (user 2026-11-08): corona heating, destruction and
         // respawn run before any collision logic each step.
         this.updateStarHazard(dt);
@@ -754,42 +948,13 @@ export class VisibleUniverse15 extends VisibleUniverse {
                         const impact = Vec2_makeWithAngleMag(Vec2.Zero(), a, planet.radius).addSelf(planet.pos);
                         Vec2_makeWithAngleMag(this.ship.pos, a, planet.radius + this.ship.radius - d).addSelf(planet.pos);
 
-                        //                        add(Spark(
-                        //                            lifetime = 1f,
-                        //                            style = Spark.Style.DOT,
-                        //                            color = Color.Yellow,
-                        //                            size = 10f
-                        //                        ).apply {
-                        //                            pos = impact
-                        //                            opos = impact
-                        //                            velocity = Vec2.Zero
-                        //                        })
-                        //
-                        for (let it = 1; it <= 10; it++) {
-                            const spark = new Spark(
-                                this.rng.minmax(0.5, 2),
-                                false,
-                                0,
-                                SparkStyle.DOT,
-                                Colors.White,
-                                1
-                            );
-                            Vec2_makeWithAngleMag(
-                                spark.pos,
-                                this.rng.minmax(0, 2 * PI),
-                                this.rng.minmax(0.1, 0.5)
-                            ).addSelf(impact);
-                            Vec2_copy(spark.opos, spark.pos);
-                            Vec2_makeWithAngleMag(
-                                spark.velocity,
-                                //                                            a +
-                                // rng.nextFloatInRange(-PIf, PIf),
-                                this.rng.minmax(0, 2 * PI),
-                                this.rng.minmax(0.1, 0.5)
-                            );
-                            spark.velocity.x += this.ship.velocity.x * 0.8;
-                            spark.velocity.y += this.ship.velocity.y * 0.8;
-                            this.addEntity(spark);
+                        // budgeted impact FX (user 2026-11-08): see
+                        // spawnImpactSparks — once per cooldown, velocity-scaled
+                        if (this.impactFxCooldown <= 0) {
+                            this.impactFxCooldown = 0.12;
+                            const relVx = this.ship.velocity.x - planet.velocity.x;
+                            const relVy = this.ship.velocity.y - planet.velocity.y;
+                            this.spawnImpactSparks(impact.x, impact.y, Math.hypot(relVx, relVy), a, relVx, relVy);
                         }
                     }
                 }
@@ -835,29 +1000,14 @@ export class VisibleUniverse15 extends VisibleUniverse {
                     } else {
                         const impact = Vec2_makeWithAngleMag(Vec2.Zero(), a, surfaceDist).addSelf(asteroid.pos);
                         Vec2_makeWithAngleMag(this.ship.pos, a, surfaceDist + this.ship.radius - d).addSelf(asteroid.pos);
-                        for (let it = 1; it <= 10; it++) {
-                            const spark = new Spark(
-                                this.rng.minmax(0.5, 2),
-                                false,
-                                0,
-                                SparkStyle.DOT,
-                                Colors.White,
-                                1
-                            );
-                            Vec2_makeWithAngleMag(
-                                spark.pos,
-                                this.rng.minmax(0, 2 * PI),
-                                this.rng.minmax(0.1, 0.5)
-                            ).addSelf(impact);
-                            Vec2_copy(spark.opos, spark.pos);
-                            Vec2_makeWithAngleMag(
-                                spark.velocity,
-                                this.rng.minmax(0, 2 * PI),
-                                this.rng.minmax(0.1, 0.5)
-                            );
-                            spark.velocity.x += this.ship.velocity.x * 0.8;
-                            spark.velocity.y += this.ship.velocity.y * 0.8;
-                            this.addEntity(spark);
+
+                        // budgeted impact FX (user 2026-11-08): see
+                        // spawnImpactSparks — once per cooldown, velocity-scaled
+                        if (this.impactFxCooldown <= 0) {
+                            this.impactFxCooldown = 0.12;
+                            const relVx = this.ship.velocity.x - asteroid.velocity.x;
+                            const relVy = this.ship.velocity.y - asteroid.velocity.y;
+                            this.spawnImpactSparks(impact.x, impact.y, Math.hypot(relVx, relVy), a, relVx, relVy);
                         }
                     }
                 }

@@ -45,6 +45,19 @@ export class Deque<T> {
         return this.length;
     }
 
+    /** Peek at the head (oldest) element without removing it. */
+    first(): T | undefined {
+        return this.length > 0 ? this.elementData[this.head] : undefined;
+    }
+
+    /** Random access by logical index (0 = oldest). */
+    at(index: number): T | undefined {
+        if (index < 0 || index >= this.length) return undefined;
+        let i = this.head + index;
+        if (i >= this.elementData.length) i -= this.elementData.length;
+        return this.elementData[i] as T;
+    }
+
     removeFirst(): T {
         if (this.length === 0) {
             throw new Error("Deque is empty");

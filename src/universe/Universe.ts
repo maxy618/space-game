@@ -77,15 +77,23 @@ export const enum UniverseConst {
     CRAFT_SPEED_LIMIT = 4_000,
     CRAFT_SPEED_LIMIT_BOOST = 6_000,
 
+    // Trail (user 2026-11-09): points are recorded per DISTANCE traveled,
+    // not per sim step — an even, dashed path. Points EXPIRE BY TIME
+    // (TRACK_LIFETIME): while flying, the tail is lifetime × speed behind
+    // the ship — always far off-screen, never visibly retracts; when the
+    // ship stops, the trail visibly shrinks and vanishes after the
+    // lifetime. TRACK_LENGTH is just a memory cap.
+    TRACK_LENGTH = 20_000,
+    TRACK_SAMPLE_DIST = 50,
+    TRACK_LIFETIME = 15, // seconds
+
     // Ship-only gravity strengthen (user 2026-11-08): the raw Newton term
     // felt weightless at flight speed. The SHIP feels 4x stronger wells
     // (close flybys bend the trajectory), while asteroids keep the original
     // Keplerian calibration so belts and orbits are unchanged.
     SHIP_GRAVITY_MULTIPLIER = 4,
     MAIN_ENGINE_ACCEL = 1000, // thrust effect, pixels per second squared
-    LAUNCH_MECO = 2, // how long to suspend gravity when launching
-
-    TRACK_LENGTH = 10_000
+    LAUNCH_MECO = 2 // how long to suspend gravity when launching
 }
 
 export const SCALED_THRUST = true;
@@ -352,7 +360,7 @@ export class Universe extends Simulator {
             this.planets.push(p);
             this.addEntity(p);
         }
-        this.spawnAsteroids(120);
+        this.spawnAsteroids();
         this.planets.sort((a, b) => a.pos.distance(this.star.pos) - b.pos.distance(this.star.pos));
         this.planets.forEach((planet, idx) => planet.name = (systemName + " " + (idx + 1)));
         this.addEntity(this.star);
@@ -417,50 +425,72 @@ export class Universe extends Simulator {
     }
 
     /**
-     * Spawn a drifting asteroid belt (user 2026-11-08): 36 seeded asteroids
-     * clustered in one radial band (60–110 km), radii 25–350 m, with
-     * tangential Keplerian velocities around the star — the belt slowly
-     * rotates coherently under gravity. They are visual/physics bodies, not
-     * landable — collisions are disabled, they keep stable ids (2001+) and
-     * are NOT saved (decorative debris, regenerated from the world seed).
+     * Spawn the asteroid population (user 2026-11-09 redesign): CLUSTERS
+     * instead of one uniform ring. 4–6 dense fields (16–30 rocks each,
+     * elliptical spread around a seeded center) + 26 scattered loners.
+     * Rocks are BIG (260–1400 m) — real maneuvering obstacles, fun to
+     * slalom at speed. Tangential Keplerian velocities keep everything
+     * orbiting coherently. Stable ids (2001+), not saved (regenerated
+     * from the world seed); collisions/landing on rocks work.
      */
-    spawnAsteroids(count: number) {
-        for (let i = 0; i < count; i++) {
-            const radius = this.rngForInit.minmax(80, 450);
-            const orbitRadius = lerp(60_000, 110_000, this.rngForInit.float());
+    spawnAsteroids() {
+        const rng = this.rngForInit;
+        let id = 2001;
+        const placeRock = (orbitRadius: number, angle: number) => {
+            const radius = rng.minmax(260, 1400);
             const a = new Asteroid(radius);
-            a.id = 2001 + i;
-            a.seed = this.rngForInit.float();
-            a.spin = this.rngForInit.minmax(-0.6, 0.6);
-            a.radii = Array.from({ length: 9 }, () => 0.55 + this.rngForInit.float() * 0.55);
-            Vec2_makeWithAngleMag(a.pos, this.rngForInit.float() * PI * 2, orbitRadius).addSelf(this.star.pos);
+            a.id = id++;
+            a.seed = rng.float();
+            a.spin = rng.minmax(-0.6, 0.6);
+            a.radii = Array.from({ length: 9 }, () => 0.55 + rng.float() * 0.55);
+            Vec2_makeWithAngleMag(a.pos, angle, orbitRadius).addSelf(this.star.pos);
             // circular-orbit velocity (same Keplerians as planets)
             const period = sqrt(orbitRadius * orbitRadius * orbitRadius / this.star.mass) * UniverseConst.KEPLER_CONSTANT;
             const speed = 2 * PI * orbitRadius / period;
             Vec2_makeWithAngleMag(a.velocity, Vec2_angle(a.pos, this.star.pos) + PI / 2, speed);
             this.asteroids.push(a);
             this.addEntity(a);
+        };
+        // dense maneuvering fields
+        const numClusters = 4 + rng.minmaxInt(0, 3); // 4..6
+        for (let c = 0; c < numClusters; c++) {
+            const centerAngle = rng.float() * PI * 2;
+            const centerRad = lerp(60_000, 110_000, rng.float());
+            const radSpread = rng.minmax(6_000, 14_000);
+            const angSpread = rng.minmax(0.16, 0.34); // arc-length ≈ rad × angSpread
+            const rocks = rng.minmaxInt(16, 31); // 16..30
+            for (let i = 0; i < rocks; i++) {
+                const ang = centerAngle + (rng.float() + rng.float() - 1) * angSpread;
+                const rad = centerRad + (rng.float() + rng.float() - 1) * radSpread;
+                placeRock(clamp(rad, 45_000, 130_000), ang);
+            }
+        }
+        // scattered loners across the belt
+        for (let i = 0; i < 26; i++) {
+            placeRock(lerp(60_000, 110_000, rng.float()), rng.float() * PI * 2);
         }
     }
 
     closestPlanet(): Planet {
-        const newArray = Array.from(this.planets);
-        newArray.push(this.star);
-        const bodiesByDist = newArray
-            .map(planet => [planet.pos, planet])
-            .sort((a, b) => (a[0] as Vec2).distance(this.ship.pos) - (b[0] as Vec2).distance(this.ship.pos));
-
-        return bodiesByDist[0][1] as Planet;
+        // allocation-free (user 2026-11-08): the old map+sort created an
+        // array of pairs EVERY solve step — pure GC pressure in the hot path
+        let best: Planet = this.star;
+        let bestDist = this.ship.pos.distance(this.star.pos);
+        for (const p of this.planets) {
+            const d = this.ship.pos.distance(p.pos);
+            if (d < bestDist) { bestDist = d; best = p; }
+        }
+        return best;
     }
 
     closestPlanetForZoom(): Planet {
-        const newArray = Array.from(this.planets);
-        newArray.push(this.star);
-        const bodiesByDist = newArray
-            .map(planet => [planet.pos, planet])
-            .sort((a, b) => ((a[0] as Vec2).distance(this.ship.pos) - (a[1] as Planet).radius * 1.2) - ((b[0] as Vec2).distance(this.ship.pos) - (b[1] as Planet).radius * 1.2));
-
-        return bodiesByDist[0][1] as Planet;
+        let best: Planet = this.star;
+        let bestScore = this.ship.pos.distance(this.star.pos) - this.star.radius * 1.2;
+        for (const p of this.planets) {
+            const s = this.ship.pos.distance(p.pos) - p.radius * 1.2;
+            if (s < bestScore) { bestScore = s; best = p; }
+        }
+        return best;
     }
 
     solveAll(dt: number, constraints: Set<Constraint>) {
@@ -727,15 +757,62 @@ export class Spark extends Body implements Removable {
 export class Track {
     positions = new Deque<Vec2>(UniverseConst.TRACK_LENGTH);
     private angles = new Deque<number>(UniverseConst.TRACK_LENGTH);
-    add(x: number, y: number, a: number) {
+    /** Sim time (seconds) each point was recorded — for lifetime expiry. */
+    private times = new Deque<number>(UniverseConst.TRACK_LENGTH);
+    /** Most recent expire() time — used for ages in rendering. */
+    private lastNow = 0;
+    private lastX = NaN;
+    private lastY = NaN;
+    add(x: number, y: number, a: number, now: number) {
+        // Distance-sampled (user 2026-11-09): one point per
+        // TRACK_SAMPLE_DIST of travel instead of one per sim step — an
+        // even trail at any speed.
+        if (!isNaN(this.lastX) && Math.hypot(x - this.lastX, y - this.lastY) < UniverseConst.TRACK_SAMPLE_DIST) return;
+        this.lastX = x;
+        this.lastY = y;
         if (this.positions.size() >= (UniverseConst.TRACK_LENGTH - 1)) {
-            this.positions.removeFirst();
-            this.angles.removeFirst();
-            this.positions.removeFirst();
-            this.angles.removeFirst();
+            this.dropOldest();
         }
         this.positions.addLast(new Vec2(x, y));
         this.angles.addLast(a);
+        this.times.addLast(now);
+    }
+    /**
+     * Expire points older than TRACK_LIFETIME (user 2026-11-09): the tail
+     * vanishes by AGE, not by count. While flying, expired points are far
+     * outside the viewport (lifetime × speed behind the ship); when the
+     * ship is parked, the whole trail visibly shrinks away.
+     */
+    expire(now: number) {
+        this.lastNow = now;
+        while (this.times.size() > 0
+            && now - (this.times.first() as number) > UniverseConst.TRACK_LIFETIME) {
+            this.dropOldest();
+        }
+        // fully expired: reset the distance sampler so the next trail
+        // starts fresh rather than jumping from an old position
+        if (this.positions.size() === 0) {
+            this.lastX = NaN;
+            this.lastY = NaN;
+        }
+    }
+    private dropOldest() {
+        this.positions.removeFirst();
+        this.angles.removeFirst();
+        this.times.removeFirst();
+    }
+
+    /** Number of recorded points. */
+    size(): number { return this.positions.size(); }
+
+    /** Iterate points with their AGE in seconds (for age-faded drawing). */
+    forEachPoint(fn: (x: number, y: number, age: number) => void) {
+        for (let i = 0; i < this.positions.size(); i++) {
+            const p = this.positions.at(i);
+            const t = this.times.at(i);
+            if (p === undefined || t === undefined) continue;
+            fn(p.x, p.y, this.lastNow - t);
+        }
     }
 }
 
@@ -826,7 +903,8 @@ export class Spacecraft extends Body {
 
         // special effects all need to be added after the simulation step so they have
         // the correct position of the ship.
-        this.track.add(this.pos.x, this.pos.y, this.angle);
+        this.track.add(this.pos.x, this.pos.y, this.angle, sim.now);
+        this.track.expire(sim.now);
 
         const mag = this.thrust.mag();
         if (sim.rng.float() < mag) {

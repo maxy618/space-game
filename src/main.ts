@@ -168,6 +168,9 @@ const activity = MainActivity15(
 // real input events, using these positions only to aim. Never player-facing.
 if (typeof location !== "undefined" && location.hash.includes("debug=1")) {
     (window as unknown as { __game?: unknown }).__game = activity.debugState;
+    // Debug-only teleport (QA routes; #debug=1): place the ship at a given
+    // position/heading without disturbing the simulation.
+    (window as unknown as { __teleport?: unknown }).__teleport = activity.teleport;
 }
 const pointerInput = activity.pointerInput;
 const drawFn = activity.draw;

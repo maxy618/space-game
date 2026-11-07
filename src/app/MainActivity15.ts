@@ -36,7 +36,7 @@ import { Colors } from "../core/Colors";
 import { Namer15 } from "../core/Namer15";
 import { clamp, lexp } from "../core/Maths";
 import { lerp } from "../core/MathHelpers";
-import { Vec2_makeWithAngleMag } from "../core/Vec2";
+import { Vec2, Vec2_copy, Vec2_makeWithAngleMag } from "../core/Vec2";
 import { VisibleUniverse15, ZoomedDrawScope15 } from "../render/VisibleUniverse15";
 import { StarClassNames, UniverseConst } from "../universe/Universe";
 import { Spacecraft } from "../universe/Universe";
@@ -45,6 +45,7 @@ import { FlightStick } from "../input/FlightStick";
 import { InputActionLayer } from "../input/InputActions";
 import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
+import { timeToImpact, impactGatesPass, IMPACT_CLEAR_SECONDS, IMPACT_CRITICAL_SECONDS } from "../universe/CollisionPredict";
 import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, fisheyeTargetForSpeed, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M, decayKick, kickMetersForScreenPx } from "../camera/Camera";
 import { newRandom } from "../core/RandomKt";
 
@@ -96,6 +97,7 @@ let isBaklava = false;
 let isControlsShow = false;
 
 const atan2 = Math.atan2;
+const PI = Math.PI;
 const floor = Math.floor;
 const max = Math.max;
 const random = Math.random;
@@ -246,31 +248,59 @@ function Spaaaace(
     const KICK_DECAY_RATE = 6; // per second → ~0.5 s visible kick
     let prevLanding = false;
     let prevDiscovery: number | null = null;
+    let nearStarGlare = 1; // 1 = normal sky, 0 = fully washed out (close to star)
 
-    // Deterministic multi-layer starfield (P05-T03, deepened 2026-11-08):
-    // three parallax planes — far (0.08 px/m, fine), mid (0.15 px/m, bigger
-    // brighter), near dust (1.3 px/m, faint) — phase-locked to camera
-    // translation only (never zoom-scaled), wrapped in 512 px tiles.
+    // Deterministic multi-layer starfield (P05-T03, deepened 2026-11-08,
+    // enriched 2026-11-09): three parallax planes — far (0.08 px/m, fine),
+    // mid (0.15 px/m, bigger brighter), near dust (1.3 px/m, faint) — plus
+    // a diagonal "milky band" of dense faint stars and distant galaxies.
+    // Stars vary by TEMPERATURE (blue/white/warm/red), the brightest carry
+    // a subtle 4-point diffraction glint, all far stars gently twinkle.
     const STARFIELD_SEED = 123456789n;
     const starfieldRng = newRandom(STARFIELD_SEED);
-    interface StarDot { x: number; y: number; size: number; alpha: number }
+    interface StarDot { x: number; y: number; size: number; alpha: number; color: string; twinklePhase: number; twinkleRate: number; glint: boolean }
+    // temperature palette: most neutral-white, fewer warm, rare red giants
+    const starPalette = ["#D8D8FF", "#D8D8FF", "#FFFFFF", "#C8D8FF", "#FFE9C8", "#FFE9C8", "#FFD9A8", "#B8E8FF", "#FFBE8A"];
+    const makeStar = (): StarDot => ({
+        x: starfieldRng.minmax(0, 512),
+        y: starfieldRng.minmax(0, 512),
+        size: starfieldRng.minmax(0.5, 1.4),
+        alpha: starfieldRng.minmax(0.16, 0.7),
+        color: starPalette[starfieldRng.minmaxInt(0, starPalette.length)],
+        twinklePhase: starfieldRng.minmax(0, PI * 2),
+        twinkleRate: starfieldRng.minmax(0.4, 1.6),
+        glint: false,
+    });
     const starfield: StarDot[] = [];
+    for (let i = 0; i < 110; i++) starfield.push(makeStar());
+    // Milky band (user 2026-11-09): a RESTRAINED cluster of tiny faint stars
+    // along a diagonal — depth cue, not noise (user warning: the sky must
+    // never read as mush). Faint alphas, sparse count.
+    const band: StarDot[] = [];
     for (let i = 0; i < 110; i++) {
-        starfield.push({
-            x: starfieldRng.minmax(0, 512),
-            y: starfieldRng.minmax(0, 512),
-            size: starfieldRng.minmax(0.5, 1.4),
-            alpha: starfieldRng.minmax(0.16, 0.7),
+        const t = starfieldRng.float();
+        // diagonal band through the tile, gaussian-ish lateral spread
+        const cx = t * 512;
+        const cy = t * 512 * 0.5 + 96;
+        const spread = (starfieldRng.float() + starfieldRng.float() - 1) * 90;
+        band.push({
+            x: (cx + spread + 512) % 512,
+            y: (cy + spread * 0.7 + 512) % 512,
+            size: starfieldRng.minmax(0.4, 0.8),
+            alpha: starfieldRng.minmax(0.04, 0.2),
+            color: starfieldRng.float() < 0.2 ? "#FFE9C8" : "#D8D8FF",
+            twinklePhase: 0,
+            twinkleRate: 0,
+            glint: false,
         });
     }
     const midfield: StarDot[] = [];
     for (let i = 0; i < 60; i++) {
-        midfield.push({
-            x: starfieldRng.minmax(0, 512),
-            y: starfieldRng.minmax(0, 512),
-            size: starfieldRng.minmax(0.9, 1.7),
-            alpha: starfieldRng.minmax(0.25, 0.6),
-        });
+        const s = makeStar();
+        s.size = starfieldRng.minmax(0.9, 1.7);
+        s.alpha = starfieldRng.minmax(0.25, 0.6);
+        s.glint = starfieldRng.float() < 0.12;
+        midfield.push(s);
     }
     const dustfield: StarDot[] = [];
     for (let i = 0; i < 36; i++) {
@@ -279,8 +309,120 @@ function Spaaaace(
             y: starfieldRng.minmax(0, 512),
             size: starfieldRng.minmax(0.6, 1.4),
             alpha: starfieldRng.minmax(0.03, 0.12),
+            color: "#D8D8FF",
+            twinklePhase: 0,
+            twinkleRate: 0,
+            glint: false,
         });
     }
+    // Distant galaxies (user 2026-11-09): real SPIRAL galaxies, pre-rendered
+    // once into sprites — bright warm core, faint elliptical disc,
+    // logarithmic-spiral arms dotted with star clusters and H-II knots,
+    // a dark dust lane along the inner arm, gentle tilt. Varied sizes
+    // (one prominent, one medium, one tiny) so the sky never looks tiled.
+    const buildGalaxySprite = (rng: () => number, hue: string, coreHue: string): HTMLCanvasElement => {
+        const SIZE = 256 * dpr0();
+        const c = document.createElement("canvas");
+        c.width = SIZE;
+        c.height = SIZE;
+        const g = c.getContext("2d")!;
+        const cx = SIZE / 2;
+        const cy = SIZE / 2;
+        const R = SIZE / 2 * 0.86;
+        const tilt = 0.38 + rng() * 0.25; // disc inclination (squash)
+        const rot = rng() * PI;
+        g.translate(cx, cy);
+        g.rotate(rot);
+        g.scale(1, tilt);
+        const arms = 2 + Math.floor(rng() * 2); // 2..3
+        const armPhase = rng() * PI * 2;
+        const wind = 2.6 + rng() * 1.2; // how tightly the spiral winds
+        // disc glow
+        const disc = g.createRadialGradient(0, 0, 0, 0, 0, R);
+        disc.addColorStop(0, coreHue);
+        disc.addColorStop(0.25, hue);
+        disc.addColorStop(1, "rgba(0,0,0,0)");
+        g.globalAlpha = 0.16;
+        g.fillStyle = disc;
+        g.beginPath();
+        g.arc(0, 0, R, 0, PI * 2);
+        g.fill();
+        // arms: hundreds of additive dots along logarithmic spirals
+        g.globalCompositeOperation = "lighter";
+        const armDots = Math.floor(220 + rng() * 120);
+        for (let i = 0; i < armDots; i++) {
+            const arm = i % arms;
+            const t = rng();
+            const theta = armPhase + (arm / arms) * PI * 2 + t * wind * PI;
+            const rad = R * 0.14 * Math.exp((t * wind * PI) / 2.2);
+            if (rad > R * 0.98) continue;
+            const spread = R * 0.05 * (1 + t * 1.6);
+            const px = Math.cos(theta) * rad + (rng() - 0.5) * spread;
+            const py = Math.sin(theta) * rad * 0.86 + (rng() - 0.5) * spread;
+            const s = (0.6 + rng() * 1.8) * (SIZE / 256);
+            g.globalAlpha = 0.10 + rng() * 0.22 * (1 - t * 0.5);
+            g.fillStyle = rng() < 0.16 ? coreHue : hue;
+            g.beginPath();
+            g.arc(px, py, s, 0, PI * 2);
+            g.fill();
+        }
+        // a few bright H-II knots on the arms
+        for (let k = 0; k < 6; k++) {
+            const arm = Math.floor(rng() * arms);
+            const t = 0.25 + rng() * 0.7;
+            const theta = armPhase + (arm / arms) * PI * 2 + t * wind * PI;
+            const rad = R * 0.14 * Math.exp((t * wind * PI) / 2.2);
+            if (rad > R) continue;
+            g.globalAlpha = 0.28;
+            g.fillStyle = coreHue;
+            g.beginPath();
+            g.arc(Math.cos(theta) * rad, Math.sin(theta) * rad * 0.86, 2.4 * (SIZE / 256), 0, PI * 2);
+            g.fill();
+        }
+        // core bulge (bright, warm)
+        g.globalAlpha = 1;
+        const bulge = g.createRadialGradient(0, 0, 0, 0, 0, R * 0.3);
+        bulge.addColorStop(0, "rgba(255,245,225,0.95)");
+        bulge.addColorStop(0.4, coreHue);
+        bulge.addColorStop(1, "rgba(0,0,0,0)");
+        g.globalAlpha = 0.8;
+        g.fillStyle = bulge;
+        g.beginPath();
+        g.arc(0, 0, R * 0.3, 0, PI * 2);
+        g.fill();
+        // dark dust lane hugging one inner arm
+        g.globalCompositeOperation = "source-over";
+        g.globalAlpha = 0.20;
+        g.strokeStyle = "rgba(10,8,14,0.8)";
+        g.lineWidth = R * 0.035;
+        g.beginPath();
+        for (let i = 0; i <= 40; i++) {
+            const t = i / 40;
+            const theta = armPhase + PI * 0.5 + t * wind * PI;
+            const rad = R * 0.14 * Math.exp((t * wind * PI) / 2.2);
+            const px = Math.cos(theta) * rad;
+            const py = Math.sin(theta) * rad * 0.86;
+            if (i === 0) g.moveTo(px, py);
+            else g.lineTo(px, py);
+        }
+        g.stroke();
+        return c;
+    };
+    const dpr0 = () => (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
+    const galaxies = [
+        { rx: 20, alpha: 0.55, hue: "#9FB4E8", coreHue: "#FFE8C8" },
+        { rx: 11, alpha: 0.42, hue: "#E8C8B0", coreHue: "#FFF2DC" },
+        { rx: 6, alpha: 0.30, hue: "#A8C8E8", coreHue: "#FFE8C8" },
+    ].map(g => ({
+        x: starfieldRng.minmax(0, 512),
+        y: starfieldRng.minmax(0, 512),
+        rx: g.rx,
+        alpha: g.alpha,
+        hue: g.hue,
+        coreHue: g.coreHue,
+        rot: starfieldRng.minmax(0, PI),
+        sprite: buildGalaxySprite(() => starfieldRng.float(), g.hue, g.coreHue),
+    }));
     // Near debris (user 2026-11-08): tiny tumbling rock triangles on a fast
     // parallax plane (2.5 px/m) — they whizz past close to the camera and
     // give the "flying through a debris cloud" feel of volume.
@@ -328,6 +470,16 @@ function Spaaaace(
         w2.fillStyle = Colors.Eigengrau;
         w2.fillRect(0, 0, canvasWidth, canvasHeight);
 
+        // Near-star glare factor (user 2026-11-09): 0 = inside the wash zone
+        // (close!), 1 = normal sky. Starts CLOSE to the star — within
+        // ~2R+10 km it ramps down, fully gone at 60 km.
+        {
+            const dStar = u.ship.pos.distance(u.star.pos);
+            const inner = u.star.radius * 2 + 10_000;
+            const outer = 60_000;
+            nearStarGlare = clamp((dStar - inner) / (outer - inner), 0, 1);
+        }
+
         // Depth layers (P05-T03): distant starfield + foreground dust. Drawn
         // in device pixels (identity transform) BEFORE the world grid: far
         // stars respond to camera translation only (0.08 px/m), never zoom;
@@ -339,25 +491,72 @@ function Spaaaace(
             const tile = 512;
             const tilesX = Math.ceil(canvasWidth / tile) + 1;
             const tilesY = Math.ceil(canvasHeight / tile) + 1;
-            const drawLayer = (dots: StarDot[], pxPerM: number) => {
+            const drawLayer = (dots: StarDot[], pxPerM: number, twinkle: boolean) => {
                 const ox = -parallaxOffsetPx(chaseX, dpr, pxPerM);
                 const oy = -parallaxOffsetPx(chaseY, dpr, pxPerM);
+                const t = performance.now() / 1000;
+                // Near-star glare (user 2026-11-09): the sky itself washes
+                // out close to the star — distant stars fade. Starts ONLY
+                // near: full wash inside ~2R+10 km, zero beyond 60 km.
+                let glare = 1;
+                if (nearStarGlare < 1) {
+                    glare = 0.18 + 0.82 * nearStarGlare;
+                }
                 for (const dot of dots) {
                     const bx = wrapTile(dot.x + ox, tile);
                     const by = wrapTile(dot.y + oy, tile);
+                    // gentle per-star twinkle (far layers only): ±12% slow
+                    // alpha breathing — alive, never flickery
+                    let a = dot.alpha;
+                    if (twinkle && dot.twinkleRate > 0) {
+                        a *= 0.88 + 0.12 * Math.sin(t * dot.twinkleRate + dot.twinklePhase);
+                    }
+                    const sz = dot.size * dpr;
                     for (let tx = 0; tx < tilesX; tx++) {
                         for (let ty = 0; ty < tilesY; ty++) {
-                            w2.globalAlpha = dot.alpha;
-                            w2.fillStyle = "#D8D8FF";
-                            w2.fillRect(bx + tx * tile, by + ty * tile, dot.size * dpr, dot.size * dpr);
+                            const px = bx + tx * tile;
+                            const py = by + ty * tile;
+                            w2.globalAlpha = a * glare;
+                            w2.fillStyle = dot.color;
+                            w2.fillRect(px, py, sz, sz);
+                            if (dot.glint) {
+                                // 4-point diffraction flare for the brightest
+                                // few: two hairline crosses, ultra-subtle
+                                w2.globalAlpha = a * 0.4 * glare;
+                                const g = sz * 4;
+                                w2.fillRect(px - g + sz / 2, py, g * 2, 0.8 * dpr);
+                                w2.fillRect(px, py - g + sz / 2, 0.8 * dpr, g * 2);
+                            }
                         }
                     }
                 }
                 w2.globalAlpha = 1;
             };
-            drawLayer(starfield, STARFIELD_PARALLAX_PX_PER_M);
-            drawLayer(midfield, 0.15);
-            drawLayer(dustfield, DUST_PARALLAX_PX_PER_M);
+            // galaxies first (deepest): pre-rendered spiral sprites
+            {
+                const gox = -parallaxOffsetPx(chaseX, dpr, STARFIELD_PARALLAX_PX_PER_M * 0.6);
+                const goy = -parallaxOffsetPx(chaseY, dpr, STARFIELD_PARALLAX_PX_PER_M * 0.6);
+                for (const g of galaxies) {
+                    const bx = wrapTile(g.x + gox, tile);
+                    const by = wrapTile(g.y + goy, tile);
+                    const size = g.rx * 2 * dpr;
+                    for (let tx = 0; tx < tilesX; tx++) {
+                        for (let ty = 0; ty < tilesY; ty++) {
+                            w2.save();
+                            w2.translate(bx + tx * tile, by + ty * tile);
+                            w2.rotate(g.rot);
+                            w2.globalAlpha = g.alpha;
+                            w2.drawImage(g.sprite, -size / 2, -size / 2, size, size);
+                            w2.restore();
+                        }
+                    }
+                }
+                w2.globalAlpha = 1;
+            }
+            drawLayer(band, STARFIELD_PARALLAX_PX_PER_M * 0.8, false);
+            drawLayer(starfield, STARFIELD_PARALLAX_PX_PER_M, true);
+            drawLayer(midfield, 0.15, false);
+            drawLayer(dustfield, DUST_PARALLAX_PX_PER_M, false);
             // Near debris: tumbling triangles on the 2.5 px/m plane.
             const dox = -parallaxOffsetPx(chaseX, dpr, 2.5);
             const doy = -parallaxOffsetPx(chaseY, dpr, 2.5);
@@ -741,12 +940,95 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     // respawn all drop it naturally).
     const boostGlow = document.getElementById("boostGlow");
     if (boostGlow) boostGlow.style.setProperty("--boost-glow-rgb", ship.profile.boostGlowColor);
-    function updateBoostGlow() {
+    function updateBoostGlow(millis: number) {
         if (!boostGlow) return;
         const burning = ship.boost && ship.thrust.mag() > 0.01;
-        if (burning !== boostGlow.classList.contains("active")) {
-            boostGlow.classList.toggle("active", burning);
+        if (burning) {
+            // Flame-like intensity (user 2026-11-09): three incommensurate
+            // sine layers = irregular exhaust flicker, never a static bar.
+            const t = millis / 1000;
+            const flick = 0.78
+                + 0.12 * Math.sin(t * 11.3)
+                + 0.06 * Math.sin(t * 23.7 + 1.7)
+                + 0.04 * Math.sin(t * 4.7 + 0.4);
+            boostGlow.classList.add("active");
+            boostGlow.style.opacity = flick.toFixed(3);
+        } else if (boostGlow.classList.contains("active")) {
+            boostGlow.classList.remove("active");
+            boostGlow.style.opacity = ""; // CSS transition fades it out
         }
+    }
+
+    // Collision warning (user 2026-11-08): Elite-style impact alert. Every
+    // ~100 ms we solve the closed-form closest-approach against every body;
+    // a warning requires BOTH the ship's nose and its trajectory (relative
+    // velocity) to aim at the threat, plus real closing speed — landing
+    // (nose down, near-zero closing) never triggers it. The countdown is
+    // shown in seconds; the threatened body gets a pulsing impact ring
+    // (drawImpactThreat in the render layer).
+    const impactHud = document.getElementById("impactWarning");
+    const impactHudTime = document.getElementById("impactWarningTime");
+    let impactEvalIn = 0; // seconds until the next evaluation (~10 Hz budget)
+    let lastFrameMillisImpact = -1;
+    function updateImpactWarning(millis: number) {
+        if (lastFrameMillisImpact >= 0) impactEvalIn -= (millis - lastFrameMillisImpact) / 1000;
+        lastFrameMillisImpact = millis;
+        if (impactEvalIn > 0) return;
+        impactEvalIn = 0.1;
+
+        // single pass over all bodies, keep the most urgent gated threat
+        let bestBody: { pos: Vec2, radius: number } | null = null;
+        let bestTti = Infinity;
+        let bestLevel: "warning" | "critical" = "warning";
+        for (const b of impactBodies()) {
+            const rx = b.pos.x - ship.pos.x;
+            const ry = b.pos.y - ship.pos.y;
+            // broad-phase: nothing beyond maxRelativeSpeed × warn-window can
+            // be a threat (6000 + 6000 + asteroid margin ≈ 15 000 m/s)
+            if (Math.hypot(rx, ry) > b.radius + 15_000 * IMPACT_CLEAR_SECONDS) continue;
+            const ux = b.velocity.x - ship.velocity.x;
+            const uy = b.velocity.y - ship.velocity.y;
+            const res = timeToImpact(rx, ry, ux, uy, b.radius + ship.radius);
+            if (res.tti === null || res.tti > IMPACT_CLEAR_SECONDS) continue;
+            const bearing = Math.atan2(ry, rx);
+            if (!impactGatesPass({
+                shipAngle: ship.angle,
+                bearing,
+                relCourse: Math.atan2(-uy, -ux), // ship's course relative to the body
+                closing: res.closing,
+            })) continue;
+            if (res.tti < bestTti) {
+                bestTti = res.tti;
+                bestBody = b;
+                bestLevel = res.tti <= IMPACT_CRITICAL_SECONDS ? "critical" : "warning";
+            }
+        }
+
+        if (bestBody === null) {
+            universe.impactThreat = null;
+            if (impactHud && impactHud.classList.contains("active")) impactHud.classList.remove("active");
+            return;
+        }
+        universe.impactThreat = {
+            x: bestBody.pos.x, y: bestBody.pos.y,
+            radius: bestBody.radius,
+            tti: bestTti, level: bestLevel,
+        };
+        if (impactHud && impactHudTime) {
+            impactHudTime.textContent = "T−" + bestTti.toFixed(1) + "s";
+            impactHud.classList.toggle("critical", bestLevel === "critical");
+            if (!impactHud.classList.contains("active")) impactHud.classList.add("active");
+        }
+    }
+
+    /** Broad candidates: star + planets + asteroids (one array, reused). */
+    const impactBodyScratch: Array<{ pos: Vec2, velocity: Vec2, radius: number }> = [];
+    function impactBodies(): Array<{ pos: Vec2, velocity: Vec2, radius: number }> {
+        impactBodyScratch.length = 0;
+        impactBodyScratch.push(universe.star);
+        for (const p of universe.planets) impactBodyScratch.push(p);
+        for (const a of universe.asteroids) impactBodyScratch.push(a);
+        return impactBodyScratch;
     }
 
     // Debug/testing hook (debug-only, #debug=1): exposes entity layout so
@@ -781,7 +1063,24 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 radius: p.radius,
             })),
             star: { x: universe.star.pos.x, y: universe.star.pos.y, radius: universe.star.radius },
+            impact: universe.impactThreat ? { tti: universe.impactThreat.tti, level: universe.impactThreat.level } : null,
+            liveSparks: universe.countLiveSparksPublic(),
         };
+    }
+
+    // Debug teleport (#debug=1 only): QA routes place the ship against a
+    // specific body (ram tests, landing shots). Syncs opos — position-based
+    // dynamics derives velocity from (pos − opos)/dt.
+    function teleport(x: number, y: number, angle?: number) {
+        ship.pos.x = x;
+        ship.pos.y = y;
+        Vec2_copy(ship.opos, ship.pos);
+        ship.velocity.x = 0;
+        ship.velocity.y = 0;
+        if (angle !== undefined) ship.angle = angle;
+        ship.thrust.x = 0;
+        ship.thrust.y = 0;
+        ship.heat = 0;
     }
 
     return {
@@ -789,13 +1088,15 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         setAutopilot: setAutopilot,
         setBoost: setBoost,
         debugState: debugState,
+        teleport: teleport,
         draw: (millis: number, context: CanvasRenderingContext2D, helper: CanvasHelper) => {
             applyKeyboardFlight(millis);
             universe.simulateFrame(millis);
+            updateImpactWarning(millis);
             space(context, helper);
             flightStickDraw(context, helper);
             telemetry(millis);
-            updateBoostGlow();
+            updateBoostGlow(millis);
         },
         setControlsShow: (show: boolean) => {
             isControlsShow = show;
