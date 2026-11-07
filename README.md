@@ -1,58 +1,53 @@
 # Space Exploration Game
 
-A deep 2D space-and-planet exploration game built with **PixiJS + TypeScript + Vite**, targeting desktop browsers and Android (Capacitor). The project reconstructs the Android Easter-egg reference as a playable baseline, then expands it phase by phase into a procedural universe: star-system travel, atmospheric entry, flight, landing, rovers, ecosystems, ships and visible modular upgrades.
+A deep 2D space-and-planet exploration game built with **Canvas 2D + TypeScript + Vite**, targeting desktop browsers and Android (Capacitor, later phase). Phase by phase the project turns a faithful reconstruction of the Android space Easter-egg reference into a procedural universe: star-system travel, atmospheric entry, flight, landing, rovers, ecosystems, exploration rewards, unlockable ships and visible modular upgrades.
 
 **Play now:** https://maxy618.github.io/space-game/
 
-## What makes it distinctive
+## Controls
 
-- **Layered authored 2D** — macro silhouettes, regional structure, material response, motion and postFX; not generic glossy 3D, not palette swaps.
-- **Continuous gameplay** — atmospheric entry is a playable manoeuvre: the same ship, trajectory and momentum carry from space into local flight. No teleports, no cutscene fades.
-- **Meaningful exploration** — coherent climate, geology, oceans and biomes; discoverable flora/fauna with habitat rules and stable identities.
-- **Physical ships** — every upgrade is a visible module attached to data-driven attachment points and changes handling, not just stats.
-- **Honest rendering** — screen-space and analytic effects are clearly engineered (quality tiers, blend in/out, reduced-motion behavior); approximations are never labeled as hardware ray tracing.
+- **Flight stick** — press and drag anywhere on the canvas; drag distance sets thrust (0–100%), direction aims the ship.
+- **Pause** — button in the top-right corner (Continue / Settings / Exit placeholders).
+- Debug-only tools (sim speed, pause-check, manual zoom, seed selection) are hidden behind `#debug=1` in the URL.
+
+## Development model
+
+Development follows a gated 27-phase roadmap:
+
+- `ROADMAP.md` — the phase plan; `PHASES/` — per-phase goals and exit gates.
+- `TASKS/` — detailed task files with Definitions of Done; `MISSIONS/` — the short mission prompts.
+- `PROJECT_STATE.md`, `TASK_INDEX.md` — live tracker; `EVIDENCE/` — playtest routes, screenshots, reports.
+- `DECISION_LOG.md`, `RISK_REGISTER.md` — engineering decisions and known risks.
+- `AGENTS.md` — working rules for agent contributors.
+
+Every phase ends with a real player test: the build is run and **actively played** via Playwright inputs (keyboard/mouse/touch emulation), with console/network checks and screenshots saved as evidence. A task is VERIFIED only after its Definition of Done and player test pass.
 
 ## Tech stack
 
 | Layer     | Technology |
 |-----------|------------|
-| Rendering | PixiJS (WebGL 2), layered render graph with quality tiers |
-| Language  | TypeScript, small modules with clear ownership |
+| Rendering | Canvas 2D (planned: PixiJS layered render graph in Phase 06) |
+| Language  | TypeScript, small modules, Apache-2.0 ported reference core |
 | Build     | Vite (`base: /space-game/`), `tsc` strict checks |
-| Tests     | Vitest (simulation core, regression coverage) |
-| QA        | Playwright — the game is **actively played** via real inputs, not screenshot-checked |
-| Android   | Capacitor (planned phase) |
+| Tests     | Vitest (determinism, SimClock, autopilot, phase regression suites) |
+| QA        | Playwright — real input routes, not screenshot-only checks |
+| Deploy    | GitHub Actions → GitHub Pages on every push to `main` |
 
 ## Getting started
 
 ```bash
 npm install
-npm run dev        # dev server
+npm run dev        # dev server (or use #seed=... to fix the universe)
 npm test           # vitest suite
 npm run build      # tsc + production build
-npm run preview    # serve dist/ with correct /space-game/ base
+npm run preview    # serve dist/ with the /space-game/ base
 ```
-
-Debug-only controls (sim speed, manual zoom, seed selection) are gated behind `#debug=1` in the URL. Player-facing features: flight stick, velocity-based camera zoom, pause menu.
-
-## Development model
-
-Development follows a gated phase roadmap:
-
-- `ROADMAP.md` — the 27-phase expansion plan.
-- `MISSIONS/` — one concise prompt per phase.
-- `PHASES/` — full phase goals, dependencies and exit gates.
-- `TASKS/` — detailed task files with Definitions of Done.
-- `PROJECT_STATE.md`, `TASK_INDEX.md` — live tracker of what is done and verified.
-- `EVIDENCE/` — per-task playtest routes, screenshots and reports.
-- `docs/` — testing, visual quality, licensing and release standards.
-
-Every phase ends with a player test on the real build: desktop and touch-emulated mobile, keyboard/mouse/touch inputs, console-error checks, close-up visual inspection. Progress is committed and pushed per verified increment; releases deploy to GitHub Pages via GitHub Actions (`.github/workflows/deploy.yml`) with versioned builds and save-migration rules.
 
 ## Status
 
 - **Phase 01 — reference study & toolchain:** complete.
-- **Phase 02 — faithful Android reference reconstruction:** complete (playable flight, telemetry, pause menu, live Pages deploy).
-- **Next:** modular deterministic core, ship controls, camera/scale, art direction, celestial visuals.
+- **Phase 02 — faithful Android reference reconstruction:** complete (flight, telemetry, autopilot visuals, pause menu, live Pages deploy, high-DPI camera fix).
+- **Phase 03 — modular deterministic core:** in progress (dependency/state map done).
+- **Next:** ship controls, camera/scale, art direction, celestial visuals, procedural universe.
 
 See `PROJECT_STATE.md` for the authoritative checkpoint.

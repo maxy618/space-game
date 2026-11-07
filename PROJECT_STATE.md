@@ -1,16 +1,31 @@
 # Project state
 
 **Active phase:** 03 — Modularization and deterministic game core
-**Active task:** P03-T02 — Deterministic domain layer (NEXT)
-**Overall status:** P01 ✅ | P02 ✅ | P03-T01 ✅ | P03-T02..T04 ⏳
-**Last verified commit:** cbf5098 (P02-T03 high-DPI camera fix) + P03-T01 docs commit
-**Latest QA evidence:** EVIDENCE/PHASE_03/P03-T01/ (dependency-state-map.md, t01-a..t01-c route)
+**Active task:** P03-T03 — Boundary extraction (NEXT)
+**Overall status:** P01 ✅ | P02 ✅ | P03-T01 ✅ | P03-T02 ✅ | P03-T03..T04 ⏳
+**Last verified commit:** (see git log — P03-T02 deterministic domain layer)
+**Latest QA evidence:** EVIDENCE/PHASE_03/P03-T02/ (completion-report.md, t02-a..t02-d route)
 
 ## Current checkpoint
-- Completed tasks: P01-T01..T04, P02-T01..T04, P03-T01
-- In progress: P03-T02 — deterministic domain layer
+- Completed tasks: P01-T01..T04, P02-T01..T04, P03-T01, P03-T02
+- In progress: none
 - Blocked: none
-- Next action: P03-T02 → P03-T03 → P03-T04, then Phase 04.
+- Next action: P03-T03 → P03-T04, then Phase 04.
+
+## P03-T02 highlights (2026-11-07)
+- Deterministic domain layer implemented: `Body.id` stable identity scheme
+  (star=0, planets=1..N, ship=1000; sparks stay -1/ephemeral), runtime RNG
+  seeded (was SYSTEM — effects now replay deterministically for a seed),
+  `Universe.serialize()`/`deserialize()` canonical JSON snapshot with exact
+  planet-order preservation (gravity accumulation is FP-order-sensitive).
+- tests/domain-layer.test.ts: 6 new tests — id scheme, byte-identical
+  repeatability, full round-trip restore, bit-identical continuation after
+  restore (order-independence), explored-data persistence.
+- vitest 29/29, build clean. Player route re-verified (rest→thrust 3659→
+  drift cap 5000→pause→continue), 0 console errors.
+- Follow-ups for P03-T03: remove dead Autopilot15.rng=SYSTEM; legacy
+  MainActivity.ts cleanup; move Removable to core; save version `v:1` bump
+  policy recorded.
 
 ## P03-T01 highlights (2026-11-07)
 - Full dependency/state map produced (EVIDENCE/PHASE_03/P03-T01/dependency-state-map.md):

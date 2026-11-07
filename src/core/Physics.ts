@@ -28,7 +28,7 @@
  * limitations under the License.
  */
 
-import { ARandom, SYSTEM } from "@thi.ng/random";
+import { ARandom } from "@thi.ng/random";
 import { newRandom } from "./RandomKt";
 import { Vec2, Vec2_copy } from "./Vec2";
 
@@ -58,6 +58,13 @@ export interface Entity {
 
 export class Body implements Entity {
     name: string;
+    /**
+     * Stable entity identity (P03-T02): assigned deterministically for
+     * persistent bodies (star=0, planets=1..N, ship=SHIP_STABLE_ID) so saves
+     * and cross-references (landing, follow) survive round-trips. Ephemeral
+     * bodies such as sparks keep the default -1 and are never serialized.
+     */
+    id: number = -1;
     readonly pos: Vec2 = Vec2.Zero();
     readonly opos: Vec2 = Vec2.Zero();
     readonly velocity: Vec2 = Vec2.Zero();
@@ -153,7 +160,10 @@ export class Simulator {
 
     constructor(randomSeed: bigint) {
         this.randomSeed = randomSeed;
-        this.rng = SYSTEM;
+        // Runtime RNG is seeded too (P03-T02): effect-side randomness (sparks,
+        // impact debris) must replay identically for the same seed and the same
+        // input sequence, otherwise saved worlds diverge after a restore.
+        this.rng = newRandom(randomSeed);
         this.rngForInit = newRandom(randomSeed);
     }
 

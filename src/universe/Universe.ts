@@ -46,6 +46,9 @@ const sqrt = Math.sqrt;
 // in kotlin 4/3==1 (Int)
 const FOUR_OVER_THREE = 1;
 
+/** Reserved stable id for the player ship (P03-T02 serialization contract). */
+const SHIP_STABLE_ID = 1000;
+
 export const enum UniverseConst {
     UNIVERSE_RANGE = 200_000,
 
@@ -208,6 +211,7 @@ export class Universe extends Simulator {
                 UniverseConst.STAR_RADIUS_RANGE_MAX,
             );
         this.star.name = "TEST SYSTEM";
+        this.star.id = 0;
 
         for (let it = 0; it < UniverseConst.NUM_PLANETS_RANGE_MAX; it++) {
             const thisPlanetFrac = it / (UniverseConst.NUM_PLANETS_RANGE_MAX - 1);
@@ -231,6 +235,7 @@ export class Universe extends Simulator {
                 "created planet", p, "with period", period, "and vel", speed
             );
             const num = it + 1;
+            p.id = num; // stable id 1..N, assigned in creation order (pre-sort)
             p.description = "TEST PLANET #" + num;
             p.atmosphere = "radius=" + radius;
             p.flora = "mass=" + p.mass;
@@ -244,6 +249,7 @@ export class Universe extends Simulator {
         this.addEntity(this.star);
 
         this.ship = new Spacecraft();
+        this.ship.id = SHIP_STABLE_ID;
 
         Vec2_makeWithAngleMag(this.ship.pos, PI / 4, UniverseConst.PLANET_ORBIT_RANGE_MIN).addSelf(this.star.pos);
         this.ship.angle = 0;
@@ -262,6 +268,7 @@ export class Universe extends Simulator {
             this.rngForInit.minmax(UniverseConst.STAR_RADIUS_RANGE_MIN, UniverseConst.STAR_RADIUS_RANGE_MAX)
         );
         this.star.name = systemName;
+        this.star.id = 0;
         for (let it = 0, times = this.rngForInit.minmaxInt(UniverseConst.NUM_PLANETS_RANGE_MIN, UniverseConst.NUM_PLANETS_RANGE_MAX + 1); it < times; it++) {
             const radius = this.rngForInit.minmax(UniverseConst.PLANET_RADIUS_RANGE_MIN, UniverseConst.PLANET_RADIUS_RANGE_MAX);
             const orbitRadius =
@@ -286,6 +293,7 @@ export class Universe extends Simulator {
                 "Landroid",
                 "created planet", p, "with period", period, "and vel", speed
             );
+            p.id = it + 1; // stable id 1..N, assigned in creation order (pre-sort)
             p.description = this.namer.describePlanet(this.rngForInit);
             p.atmosphere = this.namer.describeAtmo(this.rngForInit);
             p.flora = this.namer.describeLife(this.rngForInit);
@@ -298,6 +306,7 @@ export class Universe extends Simulator {
         this.addEntity(this.star);
 
         this.ship = new Spacecraft();
+        this.ship.id = SHIP_STABLE_ID;
 
         Vec2_makeWithAngleMag(
             this.ship.pos,
@@ -443,6 +452,115 @@ export class Universe extends Simulator {
                 entities.delete(it);
             }
         });
+    }
+
+    /**
+     * Serialize the persistent universe state to JSON (P03-T02).
+     * Ephemeral bodies (sparks) are excluded. The planets array order is
+     * preserved exactly: floating-point gravity accumulation is order
+     * sensitive, so a restored world must replay in the same order.
+     */
+    serialize(): string {
+        const ship = this.ship;
+        return JSON.stringify({
+            v: 1,
+            randomSeed: this.randomSeed.toString(),
+            now: this.now,
+            star: {
+                id: this.star.id,
+                name: this.star.name,
+                cls: this.star.cls,
+                radius: this.star.radius,
+                pos: { x: this.star.pos.x, y: this.star.pos.y },
+            },
+            planets: this.planets.map(p => ({
+                id: p.id,
+                name: p.name,
+                radius: p.radius,
+                pos: { x: p.pos.x, y: p.pos.y },
+                speed: p.speed,
+                color: p.color,
+                explored: p.explored,
+                atmosphere: p.atmosphere,
+                description: p.description,
+                flora: p.flora,
+                fauna: p.fauna,
+            })),
+            ship: {
+                id: ship.id,
+                pos: { x: ship.pos.x, y: ship.pos.y },
+                velocity: { x: ship.velocity.x, y: ship.velocity.y },
+                angle: ship.angle,
+                thrust: { x: ship.thrust.x, y: ship.thrust.y },
+                landingPlanetId: ship.landing ? ship.landing.planet.id : null,
+            },
+            followId: this.follow ? this.follow.id : null,
+            latestDiscoveryId: this.latestDiscovery ? this.latestDiscovery.id : null,
+        });
+    }
+
+    /**
+     * Rebuild a universe from a serialize() snapshot (P03-T02).
+     * Restores exact state; persistent bodies keep their stable ids, so
+     * landing/follow cross-references survive the round-trip.
+     */
+    static deserialize(namer: Namer, json: string): Universe {
+        const data = JSON.parse(json);
+        const u = new Universe(namer, BigInt(data.randomSeed));
+        u.now = data.now;
+
+        const star = new Star(data.star.cls, data.star.radius);
+        star.id = data.star.id;
+        star.name = data.star.name;
+        star.pos.x = data.star.pos.x;
+        star.pos.y = data.star.pos.y;
+        u.star = star;
+        u.addEntity(star);
+
+        for (const pd of data.planets) {
+            const p = new Planet(star.pos, pd.radius, new Vec2(pd.pos.x, pd.pos.y), pd.speed, pd.color);
+            p.id = pd.id;
+            p.name = pd.name;
+            p.explored = pd.explored;
+            p.atmosphere = pd.atmosphere;
+            p.description = pd.description;
+            p.flora = pd.flora;
+            p.fauna = pd.fauna;
+            u.planets.push(p);
+            u.addEntity(p);
+        }
+
+        const ship = new Spacecraft();
+        ship.id = data.ship.id;
+        ship.pos.x = data.ship.pos.x;
+        ship.pos.y = data.ship.pos.y;
+        ship.velocity.x = data.ship.velocity.x;
+        ship.velocity.y = data.ship.velocity.y;
+        ship.angle = data.ship.angle;
+        ship.thrust.x = data.ship.thrust.x;
+        ship.thrust.y = data.ship.thrust.y;
+        u.ship = ship;
+        u.addEntity(ship);
+        u.ringfence.add(ship);
+        u.addConstraint(u.ringfence);
+
+        if (data.ship.landingPlanetId !== null) {
+            const planet = u.planets.find(p => p.id === data.ship.landingPlanetId);
+            if (planet) {
+                const landing = new Landing(ship, planet, Vec2_angle(ship.pos, planet.pos));
+                ship.landing = landing;
+                u.addConstraint(landing);
+            }
+        }
+        if (data.followId !== null) {
+            if (data.followId === ship.id) u.follow = ship;
+            else if (data.followId === star.id) u.follow = star;
+            else u.follow = u.planets.find(p => p.id === data.followId) || null;
+        }
+        if (data.latestDiscoveryId !== null) {
+            u.latestDiscovery = u.planets.find(p => p.id === data.latestDiscoveryId) || null;
+        }
+        return u;
     }
 }
 
