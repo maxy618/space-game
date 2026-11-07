@@ -197,6 +197,8 @@ export class Asteroid extends Body {
     seed = 0;
     /** Spin rate (rad/s), signed. */
     spin = 0;
+    /** Regular 9-vertex polygon radii (×radius), shared physics/render. */
+    radii: number[] = [];
     constructor(radius: number) {
         super();
         this.radius = radius;
@@ -208,6 +210,23 @@ export class Asteroid extends Body {
     update(sim: Simulator, dt: number) {
         this.angle += this.spin * dt;
         super.update(sim, dt);
+    }
+    /** Distance from center to the polygon surface along angle a (world). */
+    surfaceDistance(a: number): number {
+        const local = a - this.angle;
+        const verts = this.radii.length;
+        if (verts === 0) return this.radius;
+        // local angle in [0, 2π)
+        let ang = local % (PI * 2);
+        if (ang < 0) ang += PI * 2;
+        const step = (PI * 2) / verts;
+        const i = Math.floor(ang / step) % verts;
+        const a0 = i * step;
+        const a1 = (i + 1) * step;
+        const r0 = this.radius * this.radii[i];
+        const r1 = this.radius * this.radii[(i + 1) % verts];
+        const t = (ang - a0) / step;
+        return r0 + (r1 - r0) * t;
     }
 }
 
@@ -404,6 +423,7 @@ export class Universe extends Simulator {
             a.id = 2001 + i;
             a.seed = this.rngForInit.float();
             a.spin = this.rngForInit.minmax(-0.6, 0.6);
+            a.radii = Array.from({ length: 9 }, () => 0.55 + this.rngForInit.float() * 0.55);
             Vec2_makeWithAngleMag(a.pos, this.rngForInit.float() * PI * 2, orbitRadius).addSelf(this.star.pos);
             // circular-orbit velocity (same Keplerians as planets)
             const period = sqrt(orbitRadius * orbitRadius * orbitRadius / this.star.mass) * UniverseConst.KEPLER_CONSTANT;

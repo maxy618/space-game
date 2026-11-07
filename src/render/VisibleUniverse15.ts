@@ -124,12 +124,12 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         context.save();
         context.translate(a.pos.x, a.pos.y);
         context.rotate(a.angle);
-        // irregular silhouette: 9 vertices, radii from the seed
+        // irregular silhouette: 9 vertices, radii from the shared physics array
         context.beginPath();
-        const verts = 9;
+        const verts = a.radii.length;
         for (let i = 0; i < verts; i++) {
             const ang = (i / verts) * PI * 2;
-            const rr = a.radius * (0.55 + (((seed * 97 + i * 31) % 1) + 1) % 1 * 0.55);
+            const rr = a.radius * a.radii[i];
             const px = Math.cos(ang) * rr;
             const py = Math.sin(ang) * rr * 0.85;
             if (i === 0) context.moveTo(px, py);
@@ -642,6 +642,8 @@ export class VisibleUniverse15 extends VisibleUniverse {
         // Asteroid collision (user 2026-11-08): same landing-or-impact logic
         // as planets, with the asteroid as the landing target (treated as a
         // Planet for the Landing constraint — same pos/radius interface).
+        // Surface distance follows the irregular polygon (not a circle): the
+        // ship rests on the rock face, never hovering over "air".
         if (this.ship.landing === null) {
             let closestAsteroid: Asteroid | null = null;
             let closestDist = Infinity;
@@ -655,9 +657,13 @@ export class VisibleUniverse15 extends VisibleUniverse {
             }
             if (closestAsteroid !== null) {
                 const asteroid = closestAsteroid;
-                const d = closestDist - this.ship.radius - asteroid.radius;
+                const a = Vec2_angle(this.ship.pos, asteroid.pos);
+                const surfaceDist = asteroid.surfaceDistance(a);
+                const d = this.ship.pos.distance(asteroid.pos) - this.ship.radius - surfaceDist;
                 if (d < 0) {
-                    const a = Vec2_angle(this.ship.pos, asteroid.pos);
+                    // landing, or impact? collision follows the polygon
+                    // surface, so the ship rests ON the rock face (user
+                    // 2026-11-08: circle collision left it hovering over air).
                     const aDiff = abs(this.ship.angle - a);
                     if (aDiff < PI / 4) {
                         const landing = new Landing15(
@@ -670,8 +676,8 @@ export class VisibleUniverse15 extends VisibleUniverse {
                         Vec2_copy(this.ship.velocity, asteroid.velocity);
                         this.addConstraint(landing);
                     } else {
-                        const impact = Vec2_makeWithAngleMag(Vec2.Zero(), a, asteroid.radius).addSelf(asteroid.pos);
-                        Vec2_makeWithAngleMag(this.ship.pos, a, asteroid.radius + this.ship.radius - d).addSelf(asteroid.pos);
+                        const impact = Vec2_makeWithAngleMag(Vec2.Zero(), a, surfaceDist).addSelf(asteroid.pos);
+                        Vec2_makeWithAngleMag(this.ship.pos, a, surfaceDist + this.ship.radius - d).addSelf(asteroid.pos);
                         for (let it = 1; it <= 10; it++) {
                             const spark = new Spark(
                                 this.rng.minmax(0.5, 2),
