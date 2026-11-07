@@ -34,6 +34,7 @@ import {
     setSpeedZoomEnabled,
 } from "./app/MainActivity15";
 import { initSpeedControl } from "./playerSpeed";
+import { InputActionLayer } from "./input/InputActions";
 
 const unsupportedFeatures: Array<String> = [];
 if (typeof BigInt === "undefined") {
@@ -148,12 +149,18 @@ function loadParams() {
 loadParams();
 window.addEventListener("hashchange", loadParams);
 
+// One action layer for every device (P04-T01): keyboard, mouse and touch all
+// feed the same set of player actions; focus loss releases held inputs.
+const inputLayer = new InputActionLayer();
+inputLayer.attachKeyboard(window);
+
 const activity = MainActivity15(
     document.getElementById("topText")!,
     document.getElementById("bottomText")!,
     document.getElementById("topContainer")!,
     document.getElementById("bottomContainer")!,
     document.getElementById("autopilotText")!,
+    inputLayer,
 );
 const pointerInput = activity.pointerInput;
 const drawFn = activity.draw;
@@ -350,10 +357,12 @@ function setPlayerPaused(paused: boolean) {
     if (paused) {
         clock.pause(performance.now());
         disableTouch();
+        pauseMenu.hidden = false;
         pauseMenu.classList.add("pause-open");
         spawnPausePulseChain();
     } else {
         pauseMenu.classList.remove("pause-open");
+        pauseMenu.hidden = true;
         clearPausePulseTimers();
         // Drop any pulses still animating; the menu fades out anyway.
         pauseMenu.querySelectorAll(".pause-pulse").forEach((p) => p.remove());
@@ -438,6 +447,11 @@ function keepPauseButtonClear() {
 pauseButton.addEventListener("click", function () {
     // Toggle: if the menu is closed (hidden) we pause; if it is open we resume.
     setPlayerPaused(pauseMenu.hidden);
+});
+
+// Keyboard P / Escape reaches the same pause toggle through the action layer.
+inputLayer.setEdgeHandler("pause", function () {
+    pauseButton.click();
 });
 
 pauseContinue.addEventListener("click", function () {

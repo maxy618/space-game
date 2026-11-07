@@ -42,6 +42,7 @@ import { StarClassNames, UniverseConst } from "../universe/Universe";
 import { Spacecraft } from "../universe/Universe";
 import { Landing15, Spacecraft15 } from "../universe/Universe15";
 import { FlightStick } from "../input/FlightStick";
+import { InputActionLayer } from "../input/InputActions";
 import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
 
@@ -72,6 +73,13 @@ const SPEED_ZOOM_NEAR = 0.7; // visible-space factor when the ship is stopped
 const SPEED_ZOOM_FAR = 1.7; // visible-space factor at CRAFT_SPEED_LIMIT (user preference: keep pushing farther, tune 0.7..1.7+)
 const SPEED_ZOOM_REF = 800; // px/s treated as "medium" speed = exactly the original view
 let SPEED_ZOOM_ENABLED = true;
+
+// Overall camera distance multiplier (user request 2026-11-07): the view was
+// too close on phones — high-res and regular resolution alike — even at rest.
+// 1.4x farther than before at every speed ("1.5x or slightly less to be ideal").
+// Applied to the base zoom everywhere, so relative velocity-zoom behavior is
+// unchanged, only the whole picture moves back.
+const CAMERA_DISTANCE = 1.4;
 
 let playSpeed = 1;
 let camZoom = DEFAULT_CAMERA_ZOOM;
@@ -230,7 +238,7 @@ function Spaaaace(
         if (DYNAMIC_ZOOM) {
             const closest = u.closestPlanetForZoom();
             const distToNearestSurf = max(0, (u.ship.pos.distance(closest.pos)) - closest.radius * 1.2);
-            const targetZoom = clamp(500 / distToNearestSurf, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
+            const targetZoom = clamp(500 / distToNearestSurf, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM) / CAMERA_DISTANCE;
             cameraZoom = isBaklava ? expSmooth(cameraZoom, targetZoom, u.dt, 1.5) : targetZoom;
         } else if (SPEED_ZOOM_ENABLED) {
             // Player-facing: camera view scales smoothly with ship speed.
@@ -249,12 +257,12 @@ function Spaaaace(
                 const t = clamp((speed - SPEED_ZOOM_REF) / (UniverseConst.CRAFT_SPEED_LIMIT - SPEED_ZOOM_REF), 0, 1);
                 factor = lerp(1, SPEED_ZOOM_FAR, t * t);
             }
-            const targetZoom = camZoom / factor;
+            const targetZoom = (camZoom / CAMERA_DISTANCE) / factor;
             // Clamp to a positive range: a zero/negative cameraZoom would hang the
             // gridStep while-loop below and freeze the whole page.
             cameraZoom = clamp(expSmooth(cameraZoom, targetZoom, u.dt, 2.5), MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
-        } else if (!TOUCH_CAMERA_ZOOM) cameraZoom = isBaklava ? expSmooth(cameraZoom, DEFAULT_CAMERA_ZOOM, u.dt, 5) : DEFAULT_CAMERA_ZOOM;
-        else cameraZoom = isBaklava ? expSmooth(cameraZoom, camZoom, u.dt, 5) : camZoom;
+        } else if (!TOUCH_CAMERA_ZOOM) cameraZoom = isBaklava ? expSmooth(cameraZoom, DEFAULT_CAMERA_ZOOM / CAMERA_DISTANCE, u.dt, 5) : DEFAULT_CAMERA_ZOOM / CAMERA_DISTANCE;
+        else cameraZoom = isBaklava ? expSmooth(cameraZoom, camZoom / CAMERA_DISTANCE, u.dt, 5) : camZoom / CAMERA_DISTANCE;
         if (!TOUCH_CAMERA_PAN) {
             const follow = u.follow;
             if (follow !== null) {
@@ -377,7 +385,8 @@ export function getIsBaklava() {
 }
 
 export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
-    topContainer: HTMLElement, bottomContainer: HTMLElement, autopilotText: HTMLElement) {
+    topContainer: HTMLElement, bottomContainer: HTMLElement, autopilotText: HTMLElement,
+    inputLayer: InputActionLayer) {
     const universe = new VisibleUniverse15(new Namer15(), randomSeed());
     const zoomedDrawScope = new ZoomedDrawScope15();
 
@@ -399,7 +408,10 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         minRadius,
         maxRadius,
         Colors.Green,
-        (x, y) => {
+        (x, y, isDown) => {
+            // every device feeds the same action layer (P04-T01); the stick
+            // mapping below stays the reference behavior for stick input.
+            inputLayer.setStick(x, y, isDown);
             if (universe.follow instanceof Spacecraft) {
                 const ship = universe.follow as Spacecraft;
                 if (x === 0 && y === 0) {
@@ -439,10 +451,50 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         autopilot.enabled = enabled;
     }
 
+    // Keyboard flight (P04-T01): W thrust forward, S brake, A/D steer.
+    // Applied per frame; the flight stick wins while it is active.
+    let lastFrameMillis = -1;
+    const KEYBOARD_TURN_RATE = 1.8; // radians per second while steering
+    function applyKeyboardFlight(millis: number) {
+        const actions = inputLayer.resolve();
+        const target = universe.follow instanceof Spacecraft ? universe.follow as Spacecraft : null;
+        if (target !== null && !actions.stickActive) {
+            const dt = lastFrameMillis < 0 ? 0 : clamp((millis - lastFrameMillis) / 1000, 0, 0.1);
+            if (actions.steer !== 0) {
+                target.angle += actions.steer * KEYBOARD_TURN_RATE * dt;
+            }
+            if (actions.forward > 0) {
+                Vec2_makeWithAngleMag(target.thrust, target.angle, actions.forward);
+            } else if (actions.brake > 0) {
+                // brake: the engine always thrusts forward along the heading
+                // (Universe15 applies deltaV along ship.angle), so rotate the
+                // ship to face retrograde (opposite the velocity) and burn.
+                const v = target.velocity;
+                if (v.x !== 0 || v.y !== 0) {
+                    target.angle = atan2(v.y, v.x) + Math.PI;
+                }
+                Vec2_makeWithAngleMag(target.thrust, target.angle, actions.brake);
+            } else {
+                // no keyboard thrust this frame; the stick release path or the
+                // autopilot owns thrust otherwise, zeroing here is safe because
+                // simulateFrame re-applies autopilot thrust right after.
+                target.thrust.x = 0;
+                target.thrust.y = 0;
+            }
+        }
+        lastFrameMillis = millis;
+        // Non-pause edges are mapped but their game systems arrive in later
+        // phases; consume them so they do not pile up.
+        inputLayer.consumeEdge("interact");
+        inputLayer.consumeEdge("scan");
+        inputLayer.consumeEdge("landLaunch");
+    }
+
     return {
         pointerInput: flightStick.pointerInput,
         setAutopilot: setAutopilot,
         draw: (millis: number, context: CanvasRenderingContext2D, helper: CanvasHelper) => {
+            applyKeyboardFlight(millis);
             universe.simulateFrame(millis);
             space(context, helper);
             flightStickDraw(context, helper);

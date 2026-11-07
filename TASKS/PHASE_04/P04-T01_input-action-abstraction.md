@@ -1,7 +1,7 @@
 # P04-T01 — Input action abstraction
 
 **Phase:** 04 — Ship controls and movement feel  
-**Status:** PENDING  
+**Status:** VERIFIED  
 **Depends on:** Prior tasks in this phase and prior phase gate.
 
 ## Objective

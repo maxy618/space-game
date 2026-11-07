@@ -35,7 +35,7 @@ export function FlightStick(
     minRadius: number,
     maxRadius: number,
     color: string,
-    onStickChanged: (x: number, y: number) => void
+    onStickChanged: (x: number, y: number, isDown: boolean) => void
 ) {
     let originX: number;
     let originY: number;
@@ -75,26 +75,26 @@ export function FlightStick(
         } else {
             if (e.type === "touchend" || e.type === "touchcancel" || e.type === "pointerup" || e.type === "pointercancel" || e.type === "dblclick") {
                 isDown = false;
-                onStickChanged(0, 0);
+                onStickChanged(0, 0, false);
             } else if (e.type === "touchmove") {
                 const touch = (e as TouchEvent).touches[0];
                 targetX = touch.clientX * window.devicePixelRatio;
                 targetY = touch.clientY * window.devicePixelRatio;
-                onStickChanged(targetX - originX, targetY - originY);
+                onStickChanged(targetX - originX, targetY - originY, true);
                 e.preventDefault();
             } else if (e.type === "pointermove") {
                 targetX = (e as PointerEvent).clientX * window.devicePixelRatio;
                 targetY = (e as PointerEvent).clientY * window.devicePixelRatio;
-                onStickChanged(targetX - originX, targetY - originY);
+                onStickChanged(targetX - originX, targetY - originY, true);
                 e.preventDefault();
             } else if (e.type === "touchstart") {
                 if ((e as TouchEvent).touches.length > 1) {
                     isDown = false;
-                    onStickChanged(0, 0);
+                    onStickChanged(0, 0, false);
                 }
             } else if (e.type === "contextmenu" && !isDownTouch) {
                 isDown = false;
-                onStickChanged(0, 0);
+                onStickChanged(0, 0, false);
             }
         }
     }
