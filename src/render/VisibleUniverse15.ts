@@ -28,7 +28,8 @@
  * limitations under the License.
  */
 
-import { Autopilot15 } from "../app/Autopilot15";import { Colors } from "../core/Colors";
+import { Autopilot15 } from "../sim/Autopilot15";
+import { Colors } from "../core/Colors";
 import { LOG } from "../core/Debug";
 import { drawFlag } from "../core/Flag15";
 import { lerp } from "../core/MathHelpers";

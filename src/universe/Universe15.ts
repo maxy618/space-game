@@ -32,9 +32,10 @@ import { drawFlag } from "../core/Flag15";
 import { clamp } from "../core/Maths";
 import { Body, Simulator } from "../core/Physics";
 import { Fuse } from "../core/Physics15";
-import { Landing, Planet, Removable, SCALED_THRUST, Spacecraft, UniverseConst } from "./Universe";
+import { Landing, Planet, SCALED_THRUST, Spacecraft, UniverseConst } from "./Universe";
+import { Removable } from "../core/Physics";
 import { Vec2_makeWithAngleMag, Vec2_makeWithAngleMagAdd } from "../core/Vec2";
-import type { Autopilot15 } from "../app/Autopilot15";
+import type { Autopilot15 } from "../sim/Autopilot15";
 
 const updateBody = Body.prototype.update;
 

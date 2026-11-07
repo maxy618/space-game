@@ -28,7 +28,7 @@
  * limitations under the License.
  */
 
-import { Removable } from "../universe/Universe";
+import { Removable } from "./Physics";
 
 export class Fuse implements Removable {
     lifetime: number;

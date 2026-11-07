@@ -33,7 +33,7 @@ import { Colors } from "../core/Colors";
 import { lerp } from "../core/MathHelpers";
 import { clamp } from "../core/Maths";
 import { Namer } from "../core/Namer";
-import { Body, Constraint, Container, Entity, Simulator } from "../core/Physics";
+import { Body, Constraint, Container, Entity, Removable, Simulator } from "../core/Physics";
 import { chooseRandom } from "../core/Randomness";
 import { Vec2, Vec2_angle, Vec2_copy, Vec2_makeWithAngleMag, Vec2_makeWithAngleMagAdd } from "../core/Vec2";
 import { LOG } from "../core/Debug";
@@ -78,10 +78,6 @@ export const enum UniverseConst {
 }
 
 export const SCALED_THRUST = true;
-
-export interface Removable {
-    canBeRemoved(): boolean;
-}
 
 export class Planet extends Body {
     readonly orbitCenter: Vec2;

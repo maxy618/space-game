@@ -56,6 +56,11 @@ export interface Entity {
     postUpdate(sim: Simulator, dt: number): void;
 }
 
+/** An entity that can be removed from the simulation when it is no longer relevant. */
+export interface Removable {
+    canBeRemoved(): boolean;
+}
+
 export class Body implements Entity {
     name: string;
     /**

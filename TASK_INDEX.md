@@ -22,7 +22,7 @@ Statuses: `PENDING`, `IN_PROGRESS`, `BLOCKED`, `VERIFIED`. Update at each checkp
 **Phase status:** PENDING
 - [x] `P03-T01` — Dependency and state map — `TASKS/PHASE_03/P03-T01_dependency-and-state-map.md` — VERIFIED
 - [x] `P03-T02` - Deterministic domain layer - `TASKS/PHASE_03/P03-T02_deterministic-domain-layer.md` - VERIFIED
-- [ ] `P03-T03` — Boundary extraction — `TASKS/PHASE_03/P03-T03_boundary-extraction.md` — PENDING
+- [x] `P03-T03` - Boundary extraction - `TASKS/PHASE_03/P03-T03_boundary-extraction.md` - VERIFIED
 - [ ] `P03-T04` — Parity regression suite — `TASKS/PHASE_03/P03-T04_parity-regression-suite.md` — PENDING
 
 

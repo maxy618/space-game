@@ -41,8 +41,8 @@ import { VisibleUniverse15, ZoomedDrawScope15 } from "../render/VisibleUniverse1
 import { StarClassNames, UniverseConst } from "../universe/Universe";
 import { Spacecraft } from "../universe/Universe";
 import { Landing15, Spacecraft15 } from "../universe/Universe15";
-import { FlightStick } from "./MainActivity";
-import { Autopilot15 } from "./Autopilot15";
+import { FlightStick } from "../input/FlightStick";
+import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
 
 const TEST_UNIVERSE = false

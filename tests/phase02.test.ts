@@ -10,7 +10,7 @@ import { Namer15 } from "../src/core/Namer15";
 import { SYSTEM } from "@thi.ng/random";
 import { Landing, Planet, Spacecraft, Universe, UniverseConst } from "../src/universe/Universe";
 import { Spacecraft15 } from "../src/universe/Universe15";
-import { Autopilot15 } from "../src/app/Autopilot15";
+import { Autopilot15 } from "../src/sim/Autopilot15";
 import { Namer } from "../src/core/Namer";
 import { Vec2 } from "../src/core/Vec2";
 
