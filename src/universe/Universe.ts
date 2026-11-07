@@ -719,6 +719,9 @@ export class Spacecraft extends Body {
     /** Boost burner engaged (user 2026-11-08): raises the speed cap from
      * 4000 to 6000 while held. Set by the boost button in main.ts. */
     boost = false;
+    /** Cooldown latch (user 2026-11-08): after release the 6000 cap lingers
+     * until speed drops below 4500 — set only by an engaged burner. */
+    boostLatched = false;
     /** Thrust multiplier (boost = 1.5). Applied in update(). */
     thrustMultiplier = 1;
 
@@ -763,8 +766,11 @@ export class Spacecraft extends Body {
             if (this.launchClock !== 0) this.launchClock = 0;
         }
 
-        // apply global speed limit (boost raises it 4000 → 6000)
-        const speedLimit = this.boost ? UniverseConst.CRAFT_SPEED_LIMIT_BOOST : UniverseConst.CRAFT_SPEED_LIMIT;
+        // apply global speed limit (boost raises it 4000 → 6000; after
+        // release the cap lingers until cooled below 4500 — no instant snap)
+        if (this.boost) this.boostLatched = true;
+        else if (this.velocity.mag() < UniverseConst.CRAFT_SPEED_LIMIT_BOOST - 1500) this.boostLatched = false;
+        const speedLimit = (this.boost || this.boostLatched) ? UniverseConst.CRAFT_SPEED_LIMIT_BOOST : UniverseConst.CRAFT_SPEED_LIMIT;
         if (this.velocity.mag() > speedLimit)
             Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
 

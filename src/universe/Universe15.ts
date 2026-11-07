@@ -92,8 +92,13 @@ export class Spacecraft15 extends Spacecraft {
             if (this.launchClock !== 0) this.launchClock = 0;
         }
 
-        // apply global speed limit (boost raises it 4000 → 6000)
-        const speedLimit = this.boost ? UniverseConst.CRAFT_SPEED_LIMIT_BOOST : UniverseConst.CRAFT_SPEED_LIMIT;
+        // apply global speed limit (boost raises it 4000 → 6000; after
+        // release the boost cap lingers until you cool below 4500 — no
+        // instant snap, user 2026-11-08). boostLatched is set only by the
+        // engaged burner, never by raw speed (test-reachable above cap).
+        if (this.boost) this.boostLatched = true;
+        else if (this.velocity.mag() < UniverseConst.CRAFT_SPEED_LIMIT_BOOST - 1500) this.boostLatched = false;
+        const speedLimit = (this.boost || this.boostLatched) ? UniverseConst.CRAFT_SPEED_LIMIT_BOOST : UniverseConst.CRAFT_SPEED_LIMIT;
         if (this.velocity.mag() > speedLimit)
             Vec2_makeWithAngleMag(this.velocity, this.velocity.angle(), speedLimit);
 

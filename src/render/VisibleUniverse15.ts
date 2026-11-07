@@ -267,7 +267,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             const exhaustLap = Math.min(1, Math.max(0, (thrustMag + shipSpeed / 5000) / 2));
             const t = performance.now() / 1000;
             const flick = 1 + 0.30 * Math.sin(t * 21) + 0.12 * Math.sin(t * 47 + 1.3);
-            const baseLen = (8 + thrustMag * 30 + shipSpeed / 5000 * 22) * flick * (boostOn ? 1.35 : 1);
+            const baseLen = (8 + thrustMag * 30 + shipSpeed / 5000 * 22) * flick * (boostOn ? 1.35 : 1) * 1.35;
             const baseHalf = 2.6 + thrustMag * 4.2;
 
             // Boost burner palette (user 2026-11-08): a piercing white-cyan
