@@ -293,6 +293,7 @@
     #radarCanvas {
       width: min(92vmin, 560px);
       height: min(92vmin, 560px);
+      margin-top: 48px; /* square sits a bit lower: the info card band above it */
       background: rgba(22, 22, 29, 0.9);
       border: 1px solid var(--color-Eigengrau3);
       border-radius: 18px;
@@ -303,8 +304,9 @@
        the map square itself). THE only way to close the radar. */
     #radarClose {
       position: absolute;
-      /* canvas top-right corner: card is min(92vmin,560px) centered */
-      top: calc(50% - min(46vmin, 280px) - 46px);
+      /* canvas top-right corner, shifted with the lowered square:
+         close sits just above its top edge. */
+      top: calc(50% - min(46vmin, 280px) - 22px);
       right: calc(50% - min(46vmin, 280px) + 4px);
       width: 42px;
       height: 42px;
@@ -446,31 +448,35 @@
     @media (prefers-reduced-motion: reduce) {
       #heatBanner.critical { animation: none; }
     }
-    /* Object info card (user 2026-11-09): click a scanned body on the map →
-       bottom-left console card with type / temperature / hazard / lifeforms. */
+    /* Object info card (user 2026-11-09): click a body on the radar map →
+       a console card pinned in the band BETWEEN the SYSTEM RADAR title and
+       the map square (the square is nudged down to make room). It never
+       covers the route buttons and never slides off. */
     #objectInfo {
       position: fixed;
-      left: 14px;
-      bottom: calc(14px + var(--safe-bottom));
-      min-width: 218px;
-      max-width: 300px;
-      padding: 12px 14px;
+      top: calc(52px + var(--safe-top));
+      left: 50%;
+      min-width: 240px;
+      width: min(420px, 88vw);
+      max-height: 150px;
+      overflow: hidden;
+      padding: 10px 14px;
       font-family: "Roboto Mono", monospace;
       font-size: 11px;
       letter-spacing: 0.08em;
       color: var(--color-Console);
-      background: rgba(22, 22, 29, 0.92);
+      background: rgba(22, 22, 29, 0.94);
       border: 1px solid var(--color-Eigengrau3);
       border-radius: 10px;
       z-index: 46;
       opacity: 0;
       pointer-events: none;
-      transform: translateY(8px);
+      transform: translateX(-50%) translateY(-6px);
       transition: opacity 0.2s ease, transform 0.2s ease;
     }
     #objectInfo.active {
       opacity: 1;
-      transform: translateY(0);
+      transform: translateX(-50%) translateY(0);
       pointer-events: auto;
     }
     #objectInfoTitle {
