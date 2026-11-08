@@ -516,10 +516,11 @@
       background: transparent;
       color: var(--color-Eigengrau4);
       cursor: pointer;
-      font-family: "Roboto Mono", monospace;
-      font-size: 13px;
-      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
+    #objectInfoClose svg { display: block; }
     #objectInfoClose:hover { color: var(--color-Console); }
     #radarTitle {
       position: absolute;
@@ -911,7 +912,12 @@
 
   <!-- Object info card: click a body on the radar map. -->
   <div id="objectInfo" role="status">
-    <button id="objectInfoClose" type="button" aria-label="Close info">вњ•</button>
+    <button id="objectInfoClose" type="button" aria-label="Close info">
+      <svg width="12" height="12" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <line x1="4" y1="4" x2="16" y2="16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <line x1="16" y1="4" x2="4" y2="16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    </button>
     <div id="objectInfoTitle">?</div>
     <div id="objectInfoType">?</div>
     <dl id="objectInfoRows"></dl>

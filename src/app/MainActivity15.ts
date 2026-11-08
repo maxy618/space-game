@@ -1005,8 +1005,11 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
      */
     let pendingScan = false;
     let pendingScanClock = 0;
+    /** Seconds since the last fired scan (NaN = never) — fix staleness. */
+    let lastScanAge = Number.NaN;
     function firePendingScan() {
         pendingScan = false;
+        lastScanAge = 0;
         const res = universe.triggerScan();
         if (res.total > 0 && scanResult) {
             // results banner: ONLY new finds, nothing at all when zero —
@@ -1038,6 +1041,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     }
     function updateScanFx() {
         const s = universe.scan;
+        if (!Number.isNaN(lastScanAge)) lastScanAge += universe.dt;
         // gas off during pull-out, reveal and wave (user 2026-11-09)
         const waveActive = s.waveAge >= 0 && s.waveAge <= SCAN_WAVE_SECONDS;
         const scanning = pendingScan || waveActive;
@@ -1347,11 +1351,11 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 ctx2.stroke();
             }
         }
-        // ship marker (user 2026-11-09): NOT an exact arrow — the ship is
-        // shown as an UNCERTAINTY QUAD (two parallel + two perpendicular
-        // sides, ~56px) containing the heading vector, its center wandering
-        // like any contact. Only near a NOTABLE body (star/planet) does the
-        // marker snap to the exact arrow — everything else is approximate.
+        // ship marker (user 2026-11-09): direction arrow. Precision is a
+        // 5-step color ramp: GREEN arrow only (no quad) right at a notable
+        // body (star/planet) — the position is exact there; farther away
+        // the arrow stays centered in a growing YELLOW uncertainty quad
+        // (two parallel + two perpendicular sides, center wandering).
         {
             const [sx2, sy2] = worldToScreen(universe.ship.pos.x, universe.ship.pos.y);
             let nearest = universe.star.pos.distance(universe.ship.pos);
@@ -1359,46 +1363,51 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 const d = p.pos.distance(universe.ship.pos);
                 if (d < nearest) nearest = d;
             }
-            if (nearest < 25_000) {
-                // close to a notable body: precise marker
+            // FIX QUALITY (user 2026-11-09): precision depends on three
+            // physical factors — distance to the nearest notable body
+            // (reference), ship speed (dead reckoning drifts faster), and
+            // staleness since the last scan. 5 steps green → yellow.
+            const distScore = nearest < 25_000 ? 0 : nearest < 60_000 ? 1 : nearest < 110_000 ? 2 : 3;
+            const spd = universe.ship.velocity.mag();
+            const spdScore = spd < 2000 ? 0 : spd < 4500 ? 1 : 2;
+            const staleScore = Number.isNaN(lastScanAge) ? 2 : lastScanAge < 20 ? 0 : lastScanAge < 60 ? 1 : 2;
+            const score = distScore + spdScore + staleScore;
+            const step = Math.min(4, Math.floor(score / 1.5));
+            const stepColors = ["#67E291", "#7BD96F", "#A8D45E", "#D8C453", "#E8B83C"];
+            const stepHalf = [0, 24, 30, 38, 48]; // quad half-size per step; 0 = precise, no quad
+            ctx2.strokeStyle = stepColors[step];
+            ctx2.fillStyle = stepColors[step];
+            if (step === 0) {
+                // precise: green arrow alone, no quad
                 ctx2.save();
                 ctx2.translate(sx2, sy2);
                 ctx2.rotate(universe.ship.angle);
-                ctx2.fillStyle = "#B7B7FF";
                 ctx2.beginPath();
-                ctx2.moveTo(9, 0);
-                ctx2.lineTo(-6, 5.5);
-                ctx2.lineTo(-6, -5.5);
+                ctx2.moveTo(16, 0);
+                ctx2.lineTo(-10, 9);
+                ctx2.lineTo(-10, -9);
                 ctx2.closePath();
                 ctx2.fill();
-                ctx2.rotate(-universe.ship.angle);
-                ctx2.strokeStyle = "rgba(183,183,255,0.6)";
-                ctx2.lineWidth = 1.4;
-                ctx2.beginPath();
-                ctx2.moveTo(0, 0);
-                ctx2.lineTo(universe.ship.velocity.x / 6000 * 40, universe.ship.velocity.y / 6000 * 40);
-                ctx2.stroke();
                 ctx2.restore();
             } else {
-                // deep space: approximate area (wandered quad + heading tick)
+                // approximate: big centered arrow inside the wandered quad
                 const [jx, jy] = jitter2(424242);
                 const cx = sx2 + jx * 12;
                 const cy = sy2 + jy * 12;
-                const half = 28;
+                const half = stepHalf[step];
                 ctx2.save();
                 ctx2.translate(cx, cy);
-                ctx2.rotate(universe.ship.angle);
-                ctx2.strokeStyle = "rgba(183,183,255,0.85)";
+                ctx2.strokeStyle = stepColors[step];
                 ctx2.lineWidth = 1.6;
                 ctx2.setLineDash([5, 4]);
                 ctx2.strokeRect(-half, -half, half * 2, half * 2);
                 ctx2.setLineDash([]);
-                // heading: short wedge from the box center toward velocity
-                ctx2.fillStyle = "rgba(183,183,255,0.9)";
+                ctx2.rotate(universe.ship.angle);
+                ctx2.fillStyle = stepColors[step];
                 ctx2.beginPath();
-                ctx2.moveTo(half + 10, 0);
-                ctx2.lineTo(half - 2, 5);
-                ctx2.lineTo(half - 2, -5);
+                ctx2.moveTo(12, 0);
+                ctx2.lineTo(-10, 8);
+                ctx2.lineTo(-10, -8);
                 ctx2.closePath();
                 ctx2.fill();
                 ctx2.restore();
