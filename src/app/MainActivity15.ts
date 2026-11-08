@@ -1579,6 +1579,17 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 ctx2.beginPath();
                 ctx2.arc(nx2, ny2, 5, 0, PI * 2);
                 ctx2.stroke();
+                // MAGNET highlight (user 2026-11-09): a body-bound node is
+                // ringed GREEN — the anchor is live and the pilot tracks it.
+                if (n.bodyId !== undefined && n.bodyId !== null) {
+                    ctx2.strokeStyle = "rgba(110,220,140,0.9)";
+                    ctx2.lineWidth = 1.6;
+                    ctx2.setLineDash([3, 3]);
+                    ctx2.beginPath();
+                    ctx2.arc(nx2, ny2, 9, 0, PI * 2);
+                    ctx2.stroke();
+                    ctx2.setLineDash([]);
+                }
             }
         }
         // ship marker (user 2026-11-09): direction arrow. Precision is a
@@ -1745,11 +1756,13 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             // cargo ships are legal nodes too (user 2026-11-09): the pilot
             // PURSUES their moving position until close.
             const c = universe.cargoShips.find(cf => cf.id === n.bodyId);
-            if (c) { n.x = c.pos.x; n.y = c.pos.y; n.radius = 600; }
+            if (c) { n.x = c.pos.x; n.y = c.pos.y; n.radius = 600; continue; }
+            const r = universe.asteroids.find(cf => cf.id === n.bodyId);
+            if (r) { n.x = r.pos.x; n.y = r.pos.y; n.radius = r.surfaceDistance(0); }
         }
     }
     function pushNodesToUniverse() {
-        universe.routeNodes = routeNodeList.map(n => ({ x: n.x, y: n.y, radius: n.radius }));
+        universe.routeNodes = routeNodeList.map(n => ({ x: n.x, y: n.y, radius: n.radius, bodyId: n.bodyId }));
         universe.routeNodeIdx = routeIdx;
     }
     function addRouteNode(x: number, y: number, bodyId: number | null): boolean {
@@ -1772,7 +1785,9 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const p = universe.planets.find(pl => pl.id === id);
         if (p) return p.radius;
         const c = universe.cargoShips.find(cf => cf.id === id);
-        return c ? 600 : 0;
+        if (c) return 600;
+        const r = universe.asteroids.find(cf => cf.id === id);
+        return r ? r.surfaceDistance(0) : 0;
     }
     function deleteLastRouteNode(): boolean {
         if (routeNodeList.length === 0) return false;
@@ -1935,6 +1950,14 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             const d = Math.hypot(px - mx, py - my);
             if (d < 22 && (best === null || d < best.d)) best = { id: c.id, d };
         }
+        // asteroids also attract the node when the finger lands close —
+        // magnetism wins over a random point (user 2026-11-09)
+        for (const a of universe.asteroids) {
+            const px = (a.pos.x - star.pos.x - radarPanX) * scale;
+            const py = (a.pos.y - star.pos.y - radarPanY) * scale;
+            const d = Math.hypot(px - mx, py - my);
+            if (d < 24 && (best === null || d < best.d)) best = { id: a.id, d };
+        }
         return best === null ? null : best.id;
     }
     function radarClick(mx: number, my: number): unknown {
@@ -1944,13 +1967,17 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const worldX = star.pos.x + radarPanX + mx / scale;
         const worldY = star.pos.y + radarPanY + my / scale;
         if (radarPickMode) {
-            // snap to a planet glyph OR a cargo-ship diamond when close
+            // snap to a planet glyph OR a cargo-ship diamond OR asteroid
+            // rock when the finger lands close — then the node TRACKS the
+            // object (planet orbiting, cargo flying, rock drifting).
             const hitId = radarHitTestAt(mx, my);
             if (hitId !== null) {
                 const p = universe.planets.find(pl => pl.id === hitId);
                 if (p) { addRouteNode(p.pos.x, p.pos.y, p.id); return { added: true, id: hitId }; }
                 const c = universe.cargoShips.find(cf => cf.id === hitId);
                 if (c) { addRouteNode(c.pos.x, c.pos.y, c.id); return { added: true, id: hitId }; }
+                const a = universe.asteroids.find(cf => cf.id === hitId);
+                if (a) { addRouteNode(a.pos.x, a.pos.y, a.id); return { added: true, id: hitId }; }
             }
             addRouteNode(worldX, worldY, null);
             return { added: true, id: null };

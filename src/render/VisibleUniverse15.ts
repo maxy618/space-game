@@ -876,7 +876,7 @@ export class VisibleUniverse15 extends VisibleUniverse {
     routeTarget: Planet | null = null;
     routePhase: "chase" | "brake" | "arrived" | "stopped" | "off" = "off";
     /** Multi-waypoint route (user 2026-11-09): world-space nodes. */
-    routeNodes: Array<{ x: number; y: number; radius: number }> = [];
+    routeNodes: Array<{ x: number; y: number; radius: number; bodyId?: number | null }> = [];
     routeNodeIdx = 0;
 
     initTest() {
