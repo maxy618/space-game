@@ -137,6 +137,19 @@ export class ZoomedDrawScope {
             else context.lineTo(px, py);
         }
         context.stroke();
+        // soft smooth halo over the dashes (user 2026-11-09: the border is
+        // a gentle band, not a rigid ruler line — you never "hit" it)
+        context.strokeStyle = "rgba(140, 40, 40, 0.35)";
+        context.lineWidth = 14 / this.zoom;
+        context.beginPath();
+        for (let i = 0; i <= segs; i++) {
+            const a = a0 + (a1 - a0) * (i / segs);
+            const px = cx + Math.cos(a) * R;
+            const py = cy + Math.sin(a) * R;
+            if (i === 0) context.moveTo(px, py);
+            else context.lineTo(px, py);
+        }
+        context.stroke();
         helper.clearLineDash();
     }
 

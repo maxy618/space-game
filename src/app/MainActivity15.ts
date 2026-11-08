@@ -1912,10 +1912,8 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         }
         ship.thrust.x = intent.thrustX;
         ship.thrust.y = intent.thrustY;
-        // boost gate (user 2026-11-09): the pilot may only fire the burner
-        // when the PLAYER could have — at/above the 4000 cruise cap.
-        // LATER (user 2026-11-09): the autopilot must NEVER self-boost.
-        setBoost(false);
+        // boost (user 2026-11-09): the autopilot never fires the burner
+        // itself; a MANUALLY engaged boost from the player stays on.
         universe.routeNodeIdx = routeIdx;
         universe.routePhase = routePilot.phase;
         if (routePilot.phase === "arrived") {
@@ -2237,8 +2235,9 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         // OR (b) braking is ALREADY insufficient — must act NOW (evasion).
         const dv = Math.max(0, spd0 - 500);
         const brakeDist = (dv * dv) / (2 * Math.max(1, ship.profile.engineAccel));
-        const impactDist = t.tti * spd0;
-        const brakingSaves = brakeDist <= impactDist * 0.75;
+        // start SHORT of the ragged edge: 60% margin (turning dwell eats the
+        // rest — a retro brake needs ~0.5-1s to swing the nose around).
+        const brakingSaves = brakeDist <= t.tti * spd0 * 0.6;
         if (t.tti > 2.0 && brakingSaves) return;
         const mode: "brake" | "evade" = brakingSaves ? "brake" : "evade";
         safeMode = mode;
@@ -2257,24 +2256,31 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             ship.thrust.y = 0;
             return;
         }
+        // The engine pushes ONLY along the nose (ship.angle): so the takeover
+        // reORIENTS the ship to the dodge direction and burns forward.
+        // brake → face retrograde and burn; evade → face the perpendicular
+        // dodge vector (re-aimed every frame, side chosen toward the nose).
+        let want: number;
         if (safeMode === "brake") {
-            const m = spd;
-            ship.thrust.x = -ship.velocity.x / m;
-            ship.thrust.y = -ship.velocity.y / m;
+            want = Math.atan2(ship.velocity.y, ship.velocity.x) + Math.PI;
         } else {
-            // evade: perpendicular to the bearing to the threat, away from it,
-            // re-aimed every frame as the threat moves
             const bx = t.x - ship.pos.x;
             const by = t.y - ship.pos.y;
             const bl = Math.hypot(bx, by) || 1;
-            // perpendicular unit (which side? the one the nose points away)
             const px = -by / bl;
             const py = bx / bl;
-            const side = px * ship.velocity.x + py * ship.velocity.y >= 0 ? 1 : -1;
-            ship.thrust.x = px * side;
-            ship.thrust.y = py * side;
+            const side = px * Math.cos(ship.angle) + py * Math.sin(ship.angle) >= 0 ? 1 : -1;
+            want = Math.atan2(py * side, px * side);
         }
-        playerTookControl = false; // keep diagnosing as the pilot, not the player
+        let err = want - ship.angle;
+        while (err > PI) err -= PI * 2;
+        while (err < -PI) err += PI * 2;
+        const maxTurn = 3.2 * dt; // emergency yaw is quick
+        ship.angle += clamp(err, -maxTurn, maxTurn);
+        (ship as unknown as { steerMotor?: number }).steerMotor = maxTurn > 0 ? clamp(err / maxTurn, -1, 1) : 0;
+        ship.thrust.x = Math.cos(ship.angle);
+        ship.thrust.y = Math.sin(ship.angle);
+        playerTookControl = false;
     }
     // Abort the takeover from the button (tapped in main.ts).
     function releaseHold() {
@@ -2307,12 +2313,15 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         // near-edge gradient of dread (0 at 150 km, 1 at the edge)
         const near = clamp((d - 150_000) / 50_000, 0, 1);
         if (d > 190_000 && !voidActive) voidActive = true;
-        // leaving the void: turned back toward the system OR safely inside
+        // leaving the void: turned back toward the system on the BIG cone
+        // (±86°), fading the caption out smoothly as you swing onto course
         if (voidActive && d < 170_000) voidActive = false;
+        let voidFade = 1;
         if (voidActive) {
             const toStar = Math.atan2(-ship.pos.y, -ship.pos.x);
             let err = Math.abs(((ship.angle - toStar + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-            if (err < 1.0) voidActive = false; // ± ~57° cone back home
+            voidFade = clamp((err - 0.6) / 0.9, 0, 1); // 0 when aimed home, 1 far off
+            if (err < 1.5) voidActive = false;
         }
         // soft border (user 2026-11-09, no teleport, no wall): approaching
         // the ring we simply SLOW DOWN outward — you can skim the border
@@ -2329,6 +2338,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         }
         if (voidBanner) {
             voidBanner.classList.toggle("active", voidActive);
+            voidBanner.style.opacity = voidActive ? (0.35 + 0.65 * voidFade).toFixed(2) : "";
         }
         if (voidBannerNear) {
             voidBannerNear.classList.toggle("near", !voidActive && near > 0.05);

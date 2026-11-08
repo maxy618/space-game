@@ -767,18 +767,20 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
                 const py = side * 6.5;
                 context.save();
                 context.translate(px, py);
-                context.fillStyle = "rgba(170,225,255," + (0.25 + m * 0.55) + ")";
+                // SAME palette as the main engine flame (user 2026-11-09),
+                // slightly chunkier nozzles.
+                context.fillStyle = "rgba(255,140,40," + (0.3 + m * 0.55) + ")";
                 context.beginPath();
-                context.moveTo(0, -1.8);
-                context.lineTo(-len, 0);
-                context.lineTo(0, 1.8);
+                context.moveTo(0, -2.4);
+                context.lineTo(-len * 1.25, 0);
+                context.lineTo(0, 2.4);
                 context.closePath();
                 context.fill();
-                context.fillStyle = "rgba(255,255,255," + (0.3 + m * 0.5) + ")";
+                context.fillStyle = "rgba(255,250,240," + (0.35 + m * 0.5) + ")";
                 context.beginPath();
-                context.moveTo(0, -0.9);
-                context.lineTo(-len * 0.55, 0);
-                context.lineTo(0, 0.9);
+                context.moveTo(0, -1.1);
+                context.lineTo(-len * 0.7, 0);
+                context.lineTo(0, 1.1);
                 context.closePath();
                 context.fill();
                 context.restore();
