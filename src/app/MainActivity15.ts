@@ -106,7 +106,7 @@ const mainCanvas = document.getElementById("canvasMain") as HTMLCanvasElement;
 /** Scanner needs a SLOW ship (user 2026-11-09: threshold lowered to 500). */
 const SCAN_SPEED_MAX = 500;
 /** Hard cap of the scan camera pull (× the normal zoom-out). */
-const SCAN_PULL_MAX = 6;
+const SCAN_PULL_MAX = 8;
 let radarOpen = false; // radar overlay state (mirrored in main.ts via setRadarOpen)
 
 const atan2 = Math.atan2;
@@ -997,16 +997,16 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     const scanResult = document.getElementById("scanResult");
     let scanResultTimer: number | null = null;
     let scanHintTimer: number | null = null;
-    function triggerPlayerScan(): number {
-        // speed gate (user: "скорость для скана снижаем ниже 500")
-        if (universe.ship.velocity.mag() >= SCAN_SPEED_MAX) {
-            if (scanHint) {
-                scanHint.classList.add("active");
-                if (scanHintTimer !== null) window.clearTimeout(scanHintTimer);
-                scanHintTimer = window.setTimeout(() => scanHint.classList.remove("active"), 1400);
-            }
-            return 0;
-        }
+    let scanHintTimerId: number | null = null;
+    /**
+     * Pending scan (user 2026-11-09): pressing SCAN first PULLS the camera
+     * out; the reveal fires only when the pull is (nearly) complete — then
+     * the wave runs and the camera glides back. Gas is cut from the press.
+     */
+    let pendingScan = false;
+    let pendingScanClock = 0;
+    function firePendingScan() {
+        pendingScan = false;
         const res = universe.triggerScan();
         if (res.total > 0 && scanResult) {
             // results banner: ONLY new finds, nothing at all when zero —
@@ -1020,12 +1020,27 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             if (scanResultTimer !== null) window.clearTimeout(scanResultTimer);
             scanResultTimer = window.setTimeout(() => scanResult.classList.remove("active"), 3200);
         }
-        return res.total;
+    }
+    function triggerPlayerScan(): number {
+        // speed gate (user: "скорость для скана снижаем ниже 500")
+        if (universe.ship.velocity.mag() >= SCAN_SPEED_MAX) {
+            if (scanHint) {
+                scanHint.classList.add("active");
+                if (scanHintTimerId !== null) window.clearTimeout(scanHintTimerId);
+                scanHintTimerId = window.setTimeout(() => scanHint.classList.remove("active"), 1400);
+            }
+            return 0;
+        }
+        if (pendingScan) return 0; // already pulling out
+        pendingScan = true;
+        pendingScanClock = 0;
+        return 0;
     }
     function updateScanFx() {
         const s = universe.scan;
-        // disable the gas while the sweep runs (user 2026-11-09)
-        const scanning = s.waveAge >= 0 && s.waveAge <= SCAN_WAVE_SECONDS;
+        // gas off during pull-out, reveal and wave (user 2026-11-09)
+        const waveActive = s.waveAge >= 0 && s.waveAge <= SCAN_WAVE_SECONDS;
+        const scanning = pendingScan || waveActive;
         if (scanning) {
             ship.thrust.x = 0;
             ship.thrust.y = 0;
@@ -1045,6 +1060,13 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             const currentHalfSpan = cssH / (2 * Math.max(0.000001, scanZoomBase));
             const wantPullRaw = clamp((SCAN_RADIUS * 1.04) / Math.max(1, currentHalfSpan), 1, SCAN_PULL_MAX);
             scanPull = expSmooth(scanPull, wantPullRaw, universe.dt, 3.0);
+            // fire the reveal once the camera has (nearly) arrived at the
+            // full pull-out — or, failing that, after a hard timeout so a
+            // scan can never hang.
+            if (pendingScan) {
+                pendingScanClock += universe.dt;
+                if (scanPull >= wantPullRaw * 0.97 || pendingScanClock > 3) firePendingScan();
+            }
         } else {
             scanPull = expSmooth(scanPull, 1, universe.dt, 1.6);
         }
