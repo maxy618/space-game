@@ -1098,9 +1098,11 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         // far away — the whole map is NOT revealed at once (no cheating).
         // Glyphs are large enough for fat fingers (18+ px hit areas).
         const shipPos = universe.ship.pos;
-        const RADAR_RANGE = 260_000;
+        const RADAR_RANGE = 190_000;
         const rangeFade = (d: number) => Math.max(0, Math.min(1, (RADAR_RANGE - d) / (RADAR_RANGE * 0.55)));
-        const bucket = Math.floor(universe.now / 0.6);
+        // node placement bumps the sweep so the radar RECOMPUTES the system
+        // at that moment (contacts re-roll immediately, not up to 0.6s later)
+        const bucket = Math.floor(universe.now / 0.6) + radarBucketBump;
         const jitter2 = (seed: number): [number, number] => {
             const h = (i: number) => {
                 const v = Math.sin((seed + 1) * 12.9898 + (bucket + i) * 78.233) * 43758.5453;
@@ -1153,16 +1155,21 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 ctx2.stroke();
             }
         }
-        // orbit rings (hairline)
-        ctx2.strokeStyle = "rgba(60,60,76,0.9)";
-        ctx2.lineWidth = 1 / radarZoom;
+        // orbit rings (hairline) — ONLY for nearby planets (user 2026-11-09):
+        // far orbits are a hard hint and must not show across the whole map.
         for (const p of universe.planets) {
+            const dist = Math.hypot(p.pos.x - shipPos.x, p.pos.y - shipPos.y);
+            const fade = rangeFade(dist);
+            if (fade <= 0.02) continue;
             const r = p.pos.distance(star.pos) * scale;
             const [sx, sy] = worldToScreen(star.pos.x, star.pos.y);
+            ctx2.strokeStyle = "rgba(60,60,76," + (0.9 * fade) + ")";
+            ctx2.lineWidth = 1 / radarZoom;
             ctx2.beginPath();
             ctx2.arc(sx, sy, r, 0, PI * 2);
             ctx2.stroke();
         }
+        ctx2.strokeStyle = "rgba(60,60,76,0.9)";
         // star (name/class only after a scan)
         {
             const [sx, sy] = worldToScreen(star.pos.x, star.pos.y);
@@ -1336,6 +1343,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     }
     /** Radar pan/zoom is world-anchored: base scale from the system span. */
     let radarZoom = 1;
+    let radarBucketBump = 0;
     let radarPanX = 0;
     let radarPanY = 0;
     function radarBaseScale(): number {
@@ -1383,6 +1391,11 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const cx = clamp(x, -R, R);
         const cy = clamp(y, -R, R);
         routeNodeList.push({ x: cx, y: cy, radius: bodyRadiusOf(bodyId), bodyId });
+        // radar recompute (user 2026-11-09): placing a point refreshes the
+        // system picture up to this moment — body-bound nodes snap to the
+        // planets' CURRENT positions and the contact sweep re-rolls.
+        syncNodePositions();
+        radarBucketBump++;
         pushNodesToUniverse();
         return true;
     }
@@ -1421,6 +1434,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         routeNodeList.splice(bestIdx, 1);
         if (routeIdx > bestIdx) routeIdx -= 1;
         if (routeIdx >= routeNodeList.length) routeIdx = Math.max(0, routeNodeList.length - 1);
+        radarBucketBump++;
         pushNodesToUniverse();
         return bestIdx;
     }

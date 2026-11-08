@@ -456,8 +456,7 @@
       position: fixed;
       top: calc(52px + var(--safe-top));
       left: 50%;
-      min-width: 240px;
-      width: min(420px, 88vw);
+      width: min(92vmin, 560px); /* exactly the map square's width */
       max-height: 150px;
       overflow: hidden;
       padding: 10px 14px;
@@ -488,15 +487,24 @@
       color: var(--color-Eigengrau4);
       margin-bottom: 8px;
     }
+    #objectInfoRows {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      column-gap: 20px;
+      margin: 0;
+    }
     #objectInfoRows div {
-      display: flex;
-      justify-content: space-between;
-      gap: 14px;
-      padding: 2px 0;
+      padding: 3px 0 5px;
       border-top: 1px solid rgba(60, 60, 76, 0.35);
     }
-    #objectInfoRows dt { color: var(--color-Eigengrau4); }
-    #objectInfoRows dd { margin: 0; color: var(--color-Console); }
+    #objectInfoRows dt, #objectInfoRows dd { display: block; }
+    #objectInfoRows dt {
+      color: var(--color-Eigengrau4);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      margin-bottom: 1px;
+    }
+    #objectInfoRows dd { margin: 0; color: var(--color-Console); font-size: 12px; }
     #objectInfoClose {
       position: absolute;
       top: 6px;
