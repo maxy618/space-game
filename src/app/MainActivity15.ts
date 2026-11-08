@@ -1005,6 +1005,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
      */
     let pendingScan = false;
     let pendingScanClock = 0;
+    let pendingScanRealStart = 0;
     /** Seconds since the last fired scan (NaN = never) — fix staleness. */
     let lastScanAge = Number.NaN;
     /** Scanned-area footprints (world meters) — shown colored on the radar. */
@@ -1044,6 +1045,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         if (pendingScan) return 0; // already pulling out
         pendingScan = true;
         pendingScanClock = 0;
+        pendingScanRealStart = performance.now();
         return 0;
     }
     function updateScanFx() {
@@ -1076,7 +1078,11 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             // scan can never hang.
             if (pendingScan) {
                 pendingScanClock += universe.dt;
-                if (scanPull >= wantPullRaw * 0.97 || pendingScanClock > 3) firePendingScan();
+                // hard timeout on REAL time too: if the radar is opened right
+                // after the press, the sim (and the pull) freezes — the scan
+                // must still fire rather than hang forever.
+                if (scanPull >= wantPullRaw * 0.97 || pendingScanClock > 3
+                    || (performance.now() - pendingScanRealStart) / 1000 > 3) firePendingScan();
             }
         } else {
             scanPull = expSmooth(scanPull, 1, universe.dt, 1.6);
@@ -1230,13 +1236,23 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             ctx2.stroke();
         }
         ctx2.strokeStyle = "rgba(60,60,76,0.9)";
-        // star (name/class only after a scan)
+        // star: color dot + CENTERED uncertainty ring when scanned (the ring
+        // must be exactly on the star — user 2026-11-09), class only after scan
         {
             const [sx, sy] = worldToScreen(star.pos.x, star.pos.y);
             ctx2.fillStyle = star.color;
             ctx2.beginPath();
             ctx2.arc(sx, sy, Math.max(3, star.radius * scale * 1.6), 0, PI * 2);
             ctx2.fill();
+            if (star.scanned) {
+                ctx2.strokeStyle = star.color;
+                ctx2.lineWidth = 1.4;
+                ctx2.setLineDash([4, 4]);
+                ctx2.beginPath();
+                ctx2.arc(sx, sy, Math.max(10, star.radius * scale * 2.4), 0, PI * 2);
+                ctx2.stroke();
+                ctx2.setLineDash([]);
+            }
             if (star.scanned && radarZoom >= 1.6 && sx > 30 && sx < W - 30 && sy > 30 && sy < H - 30) {
                 ctx2.fillStyle = "rgba(198,198,232,0.8)";
                 ctx2.font = "10px 'Roboto Mono', monospace";
@@ -1270,8 +1286,13 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 ctx2.globalAlpha = 1;
                 pendingLabels.push({ x: px + 18, y: py + 3, text: p.name, prio: 1, color: "rgba(167,167,202,0.85)" });
             } else {
-                if (fade <= 0.02) continue;
-                ctx2.globalAlpha = fade * 0.9;
+                // UNKNOWN BODY (user 2026-11-09): only appears when it is
+                // actually IN our field of view (within ~60 km) — otherwise
+                // the radar would hand us the whole map free, no scanning
+                // needed, which is illogical.
+                if (dist > 60_000) continue;
+                const nearFade = Math.min(1, (60_000 - dist) / 30_000);
+                ctx2.globalAlpha = nearFade * 0.9;
                 drawContact(px, py, p.id, Math.max(11, Math.min(40, 7000 * scale + Math.min(8, dist / 36000))), "rgba(122,122,158,0.55)", "rgba(80,80,105,0.06)");
                 ctx2.globalAlpha = 1;
                 pendingLabels.push({ x: px + 16, y: py + 3, text: "?", prio: 2, color: "rgba(122,122,158,0.7)" });
@@ -1481,7 +1502,11 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         for (const n of routeNodeList) {
             if (n.bodyId === null) continue;
             const p = universe.planets.find(pl => pl.id === n.bodyId);
-            if (p) { n.x = p.pos.x; n.y = p.pos.y; n.radius = p.radius; }
+            if (p) { n.x = p.pos.x; n.y = p.pos.y; n.radius = p.radius; continue; }
+            // cargo ships are legal nodes too (user 2026-11-09): the pilot
+            // PURSUES their moving position until close.
+            const c = universe.cargoShips.find(cf => cf.id === n.bodyId);
+            if (c) { n.x = c.pos.x; n.y = c.pos.y; n.radius = 600; }
         }
     }
     function pushNodesToUniverse() {
@@ -1506,7 +1531,9 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     function bodyRadiusOf(id: number | null): number {
         if (id === null) return 0; // free node: no surface radius
         const p = universe.planets.find(pl => pl.id === id);
-        return p ? p.radius : 0;
+        if (p) return p.radius;
+        const c = universe.cargoShips.find(cf => cf.id === id);
+        return c ? 600 : 0;
     }
     function deleteLastRouteNode(): boolean {
         if (routeNodeList.length === 0) return false;
@@ -1649,7 +1676,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
      * returns its info-card data (unknown objects = "NO DATA").
      * mx/my: canvas px relative to canvas CENTER (same basis as hitTest).
      */
-    /** Planet under a radar point (canvas-local, offset from CENTER); 14 px. */
+    /** Planet/cargo-ship under a radar point (canvas-local offsets from CENTER); 22 px. */
     function radarHitTestAt(mx: number, my: number): number | null {
         if (!radarCanvas) return null;
         const star = universe.star;
@@ -1661,6 +1688,13 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             const d = Math.hypot(px - mx, py - my);
             if (d < 22 && (best === null || d < best.d)) best = { id: p.id, d };
         }
+        // cargo ships are legal route nodes too (pursuit target)
+        for (const c of universe.cargoShips) {
+            const px = (c.pos.x - star.pos.x - radarPanX) * scale;
+            const py = (c.pos.y - star.pos.y - radarPanY) * scale;
+            const d = Math.hypot(px - mx, py - my);
+            if (d < 22 && (best === null || d < best.d)) best = { id: c.id, d };
+        }
         return best === null ? null : best.id;
     }
     function radarClick(mx: number, my: number): unknown {
@@ -1670,11 +1704,13 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const worldX = star.pos.x + radarPanX + mx / scale;
         const worldY = star.pos.y + radarPanY + my / scale;
         if (radarPickMode) {
-            // snap to a planet glyph when the click is close (14 px)
+            // snap to a planet glyph OR a cargo-ship diamond when close
             const hitId = radarHitTestAt(mx, my);
             if (hitId !== null) {
                 const p = universe.planets.find(pl => pl.id === hitId);
                 if (p) { addRouteNode(p.pos.x, p.pos.y, p.id); return { added: true, id: hitId }; }
+                const c = universe.cargoShips.find(cf => cf.id === hitId);
+                if (c) { addRouteNode(c.pos.x, c.pos.y, c.id); return { added: true, id: hitId }; }
             }
             addRouteNode(worldX, worldY, null);
             return { added: true, id: null };

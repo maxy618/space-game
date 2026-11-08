@@ -614,6 +614,7 @@ export class Universe extends Simulator {
                         this.addConstraint(landing);
 
                         planet.explored = true;
+                        planet.scanned = true; // landing == scanning
                         this.latestDiscovery = planet;
                     } else {
                         const impact = Vec2_makeWithAngleMag(Vec2.Zero(), a, planet.radius).addSelf(planet.pos);

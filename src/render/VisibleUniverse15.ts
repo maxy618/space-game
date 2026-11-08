@@ -1197,7 +1197,10 @@ export class VisibleUniverse15 extends VisibleUniverse {
                         Vec2_copy(this.ship.velocity, planet.velocity);
                         this.addConstraint(landing);
 
+                        // landing == scanning (user 2026-11-09): touching the
+                        // body IS the scan — data is revealed on the map.
                         planet.explored = true;
+                        planet.scanned = true;
                         this.latestDiscovery = planet;
                     } else {
                         const impact = Vec2_makeWithAngleMag(Vec2.Zero(), a, planet.radius).addSelf(planet.pos);
@@ -1254,6 +1257,8 @@ export class VisibleUniverse15 extends VisibleUniverse {
                         this.ship.landing = landing;
                         Vec2_copy(this.ship.velocity, asteroid.velocity);
                         this.addConstraint(landing);
+                        // landing == scanning (user 2026-11-09)
+                        asteroid.scanned = true;
                     } else {
                         const impact = Vec2_makeWithAngleMag(Vec2.Zero(), a, surfaceDist).addSelf(asteroid.pos);
                         const relVx = this.ship.velocity.x - asteroid.velocity.x;
