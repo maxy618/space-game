@@ -110,40 +110,28 @@ export function impactGatesPass(g: ImpactGateInput): boolean {
  * @param engineAccel engine accel (m/s²)
  * @param speedLimit safe speed to reach (500)
  */
-export type SafeManeuver = "brake" | "evade" | "brake-evade";
 export function decideSafeAction(
     closing: number,
     tti: number | null,
     engineAccel: number,
     safeSpeed: number,
 ): "brake" | "evade" {
-    return decideSafeManeuver(closing, tti, engineAccel, safeSpeed, 0, 0) === "evade" ? "evade" : "brake";
-}
-export function decideSafeManeuver(
-    closing: number,
-    tti: number | null,
-    engineAccel: number,
-    safeSpeed: number,
-    missDist: number = 0,
-    lateralErr: number = 0,
-): SafeManeuver {
-    const a = Math.max(1, engineAccel);
-    if (tti === null || tti <= 0) return "brake";
-    const closingDist = closing * tti;
+    if (tti === null) return "brake";
+    // distance closed while braking to safe speed, plus 25% margin
     const dv = Math.max(0, closing - safeSpeed);
-    const brakeDist = (dv * dv) / (2 * a);
-    const brakeTime = dv / a;
-    const brakeOk = brakeTime <= tti * 0.9 && brakeDist <= closingDist * 0.62;
-    const needLateral = Math.max(0, missDist + 120 - Math.abs(lateralErr));
-    const evadeTime = needLateral > 0 ? Math.sqrt((2 * needLateral) / a) : 0;
-    const evadeOk = needLateral > 0 ? evadeTime <= tti * 0.85 : true;
-    if (brakeOk) return "brake";
-    if (evadeOk) return "evade";
-    return "brake-evade";
+    const brakeDist = (dv * dv) / (2 * Math.max(1, engineAccel));
+    const closingDist = closing * tti;
+    return brakeDist <= closingDist * 0.75 ? "brake" : "evade";
 }
 
 /**
- * Latched-warning persistence (kept): releases only when physics clears.
+ * Latched-warning persistence (user 2026-11-09): once a gated warning
+ * fires, it must NOT die because the player turns the nose away. The ship
+ * is still flying into the body — the prediction is pure physics (TTI and
+ * closing speed), not heading. The latch releases only when the physics
+ * itself says the impact is gone: no positive-TTI root (miss/separating),
+ * TTI beyond the clear window, or closing speed below the impact floor
+ * (e.g. the player braked into a landing approach).
  */
 export function impactLatchedThreat(tti: number | null, closing: number): boolean {
     return tti !== null && tti <= IMPACT_CLEAR_SECONDS && closing >= IMPACT_MIN_CLOSING;

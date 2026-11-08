@@ -44,7 +44,7 @@ import { FlightStick } from "../input/FlightStick";
 import { InputActionLayer } from "../input/InputActions";
 import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
-import { timeToImpact, impactGatesPass, impactLatchedThreat, decideSafeManeuver, IMPACT_CLEAR_SECONDS, IMPACT_CRITICAL_SECONDS } from "../universe/CollisionPredict";
+import { timeToImpact, impactGatesPass, impactLatchedThreat, IMPACT_CLEAR_SECONDS, IMPACT_CRITICAL_SECONDS } from "../universe/CollisionPredict";
 import { SCAN_COOLDOWN, SCAN_RADIUS, SCAN_WAVE_SECONDS } from "../universe/Scanner";
 import { createRoutePilot, pilotStep, type RouteThreat } from "../sim/RoutePilot";
 import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, fisheyeTargetForSpeed, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M, decayKick, kickMetersForScreenPx } from "../camera/Camera";
@@ -964,7 +964,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const target = universe.follow instanceof Spacecraft ? universe.follow as Spacecraft : null;
         // safety takeover (user 2026-11-09): the joystick does not respond
         // until the shield hands control back (or the player aborts it).
-        if (target !== null && safeHold) {
+        if (target !== null && (safeHold || autoLand)) {
             target.thrust.x = 0;
             target.thrust.y = 0;
             lastFrameMillis = millis;
@@ -1866,7 +1866,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         // ONE control line (user 2026-11-09): safety and auto-landing also
         // act through this single arbiter — safe > autoLand > route pilot,
         // so route and safety never fight over the nose/thrust.
-        if (safeHold) {
+        if (safeHold || autoLand) {
             ship.thrust.x = 0;
             ship.thrust.y = 0;
             return;
@@ -2264,8 +2264,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     // control back once the threat clears. Tapping the shield mid-takeover
     // aborts the takeover instantly (control back, red gone).
     let safeHold = false;
-    let safeMode: "brake" | "evade" | "brake-evade" = "brake";
-    let safeClearTimer = 0;
+    let safeMode: "brake" | "evade" = "brake";
     const safeButton = document.getElementById("safeButton") as HTMLButtonElement | null;
     const safeEdge = document.getElementById("safeEdge");
     const safeToast = document.getElementById("safeToast");
@@ -2284,7 +2283,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         if (!on) {
             ship.thrustMultiplier = 1; // restore the normal engine
             playerTookControl = false;
-            if (universe.impactThreat === null && ship.velocity.mag() <= 520) safeShowToast("CONTROL RETURNED");
+            if (universe.impactThreat === null || ship.velocity.mag() <= 520) safeShowToast("CONTROL RETURNED");
         }
     }
     function safeEngageCheck() {
@@ -2294,96 +2293,154 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const t = universe.impactThreat;
         if (t === null) return;
         const spd0 = ship.velocity.mag();
-        if (spd0 < 300) return;
-        // best-maneuver costing (user 2026-11-09): brake vs evade vs combined.
-        // closing from physics: TTI + geometry
-        const closing = spd0;
-        const miss = t.radius + ship.radius;
-        const mode = decideSafeManeuver(closing, t.tti, ship.profile.engineAccel, 500, miss, 0);
-        // engage ONLY at the last survivable moment: needed time + swing dwell
-        const a = Math.max(1, ship.profile.engineAccel);
+        if (spd0 < 300) return; // gentle landing approach — let her land
+        // SMART LAST MOMENT (user 2026-11-09 fixed after the star kill): a
+        // fixed 2s threshold is too late when braking physically cannot stop
+        // us in time. Engage when (a) we are literally out of time (tti ≤ 2s)
+        // OR (b) braking is ALREADY insufficient — must act NOW (evasion).
         const dv = Math.max(0, spd0 - 500);
-        const brakeTime = dv / a;
-        const engageTime = mode === "evade" ? Math.sqrt((2*miss)/a) : brakeTime;
-        const swing = 0.6;
-        if (t.tti > engageTime + swing + 0.8) return; // player still has time
+        const brakeDist = (dv * dv) / (2 * Math.max(1, ship.profile.engineAccel));
+        // Full brake start ≈ braking time to 500 + nose swing dwell. The
+        // LATEST survivable moment: engage then; before that the player
+        // keeps the warning for themselves (last seconds, like promised).
+        const impactDist = t.tti * spd0;
+        const dwell = 900; // nose swing eats ~0.5-1s of margin
+        const brakingSaves = brakeDist + dwell <= impactDist * 0.85;
+        if (t.tti > 5.0 && brakingSaves) return;
+        const mode: "brake" | "evade" = brakingSaves ? "brake" : "evade";
         safeMode = mode;
-        safeClearTimer = 0;
         setSafeHold(true);
-        routePilot.active = false;
+        routePilot.active = false; // safety outranks the route pilot
         setBoost(false);
     }
     function safeHoldUpdate(dt: number) {
         if (!safeHold) return;
         const t = universe.impactThreat;
         const spd = ship.velocity.mag();
-        // release ONLY when BOTH slow AND threat cleared (user mandate)
-        if (spd <= 500 && t === null) {
+        // release: threat physics-gone (latch cleared) or down to safe speed
+        if (t === null || spd <= 500) {
             setSafeHold(false);
-            ship.thrust.x = 0; ship.thrust.y = 0;
+            ship.thrust.x = 0;
+            ship.thrust.y = 0;
             return;
         }
-        // if threat cleared but still fast, keep braking to 500 before hand-back
-        if (t === null && spd > 500) {
-            // brake retrograde to safe speed, no steering onto the star
-            const want = Math.atan2(ship.velocity.y, ship.velocity.x) + Math.PI;
-            let err = want - ship.angle;
-            while (err > PI) err -= PI * 2;
-            while (err < -PI) err += PI * 2;
-            const maxTurn = 3.2 * dt;
-            ship.angle += clamp(err, -maxTurn, maxTurn);
-            ship.thrustMultiplier = 2;
-            if (Math.abs(err) < 0.5) { ship.thrust.x = Math.cos(ship.angle); ship.thrust.y = Math.sin(ship.angle); }
-            else { ship.thrust.x = 0; ship.thrust.y = 0; }
-            playerTookControl = false;
-            return;
-        }
-        // threat still live: steer by chosen maneuver
+        // The engine pushes ONLY along the nose (ship.angle): so the takeover
+        // reORIENTS the ship to the dodge direction and burns forward.
+        // brake → face retrograde and burn; evade → face the perpendicular
+        // dodge vector (re-aimed every frame, side chosen toward the nose).
         let want: number;
         if (safeMode === "brake") {
             want = Math.atan2(ship.velocity.y, ship.velocity.x) + Math.PI;
         } else {
-            // evade / combined: perpendicular AWAY from threat (never onto it).
-            // pick side that gains miss distance fastest (relative velocity).
-            const tt = t!; const bx = tt.x - ship.pos.x;
-            const by = tt.y - ship.pos.y;
+            const bx = t.x - ship.pos.x;
+            const by = t.y - ship.pos.y;
             const bl = Math.hypot(bx, by) || 1;
-            const nx = bx / bl, ny = by / bl;
-            const px = -ny, py = nx;
-            const relVx = ship.velocity.x, relVy = ship.velocity.y;
-            const vPerp = relVx * px + relVy * py;
-            // dodge toward the side with larger perpendicular clearance, biased by closing geometry
-            const side = vPerp >= 0 ? 1 : -1;
-            // combined: brake slightly (retrograde bias) while dodging
-            if (safeMode === "brake-evade") {
-                const rx = -relVx, ry = -relVy;
-                const rm = Math.hypot(rx, ry) || 1;
-                const wx = px * side * 1.0 + (rx/rm) * 0.35;
-                const wy = py * side * 1.0 + (ry/rm) * 0.35;
-                want = Math.atan2(wy, wx);
-            } else {
-                want = Math.atan2(py * side, px * side);
-            }
-            void nx; void ny;
+            const px = -by / bl;
+            const py = bx / bl;
+            const side = px * Math.cos(ship.angle) + py * Math.sin(ship.angle) >= 0 ? 1 : -1;
+            want = Math.atan2(py * side, px * side);
         }
         let err = want - ship.angle;
         while (err > PI) err -= PI * 2;
         while (err < -PI) err += PI * 2;
-        const maxTurn = 3.2 * dt;
+        const maxTurn = 3.2 * dt; // emergency yaw is quick
         ship.angle += clamp(err, -maxTurn, maxTurn);
+        // THE BIGGEST SURVIVAL LEVER (user 2026-11-09 RAM-proof): during
+        // the takeover the brake uses a doubled engine (boost-grade) — the
+        // same burn the player gets from the burner, no speed cap fare.
         ship.thrustMultiplier = 2;
         (ship as unknown as { steerMotor?: number }).steerMotor = maxTurn > 0 ? clamp(err / maxTurn, -1, 1) : 0;
-        if (Math.abs(err) > 0.5) { ship.thrust.x = 0; ship.thrust.y = 0; }
-        else { ship.thrust.x = Math.cos(ship.angle); ship.thrust.y = Math.sin(ship.angle); }
+        // until the nose is aligned, thrust is ZERO (burning forward into the
+        // threat while swinging around used to eat the whole margin).
+        if (Math.abs(err) > 0.5) {
+            ship.thrust.x = 0;
+            ship.thrust.y = 0;
+        } else {
+            ship.thrust.x = Math.cos(ship.angle);
+            ship.thrust.y = Math.sin(ship.angle);
+        }
         playerTookControl = false;
     }
-    // Landing assist REMOVED (user 2026-11-09): button and auto-land gone.
-    // Physical slow-touch landing in the solver remains (not a button).
+    // (thrustMultiplier is reset inside setSafeHold on release)
+    // ===== Landing assist (user 2026-11-09): the landing button works like
+    // the scanner's gate — near a planet at low speed (<1000 m/s) it is
+    // armed; a tap runs a smooth AUTOMATIC touchdown (brake, approach,
+    // descend) and takes over like the safety shield.
+    const landButton = document.getElementById("landButton") as HTMLButtonElement | null;
     let autoLand = false;
-    const landButton = null as unknown as HTMLButtonElement | null;
-    function landButtonGate() {}
-    function startAutoLand() {}
-    function autoLandUpdate(dt: number) { void dt; }
+    let autoLandBody: Planet | null = null;
+    function nearestLandable(): Planet | null {
+        let best: Planet | null = null;
+        let bestD = Infinity;
+        const consider = (p: Planet) => {
+            const d = p.pos.distance(ship.pos) - ship.radius - p.radius;
+            if (d < bestD && d < 9000) { bestD = d; best = p; }
+        };
+        for (const p of universe.planets) consider(p);
+        const star = universe.star;
+        const ds = star.pos.distance(ship.pos) - ship.radius - star.radius;
+        // star is NOT landable (kill zone) — skip it on purpose
+        return best;
+    }
+    function landButtonGate() {
+        if (!landButton) return;
+        const b = nearestLandable();
+        const ok = b !== null && ship.velocity.mag() < 1000;
+        landButton.disabled = !ok && !autoLand;
+        landButton.classList.toggle("armed", ok);
+    }
+    function startAutoLand() {
+        const b = nearestLandable();
+        if (!b) return;
+        autoLand = true;
+        autoLandBody = b;
+        routePilot.active = false; // landing outranks the route
+    }
+    function autoLandUpdate(dt: number) {
+        if (!autoLand) return;
+        if (ship.landing !== null) {
+            autoLand = false;
+            autoLandBody = null;
+            safeShowToast("LANDED");
+            return;
+        }
+        const b = autoLandBody;
+        if (!b) { autoLand = false; return; }
+        const dx = b.pos.x - ship.pos.x;
+        const dy = b.pos.y - ship.pos.y;
+        const dist = Math.hypot(dx, dy);
+        const surface = b.radius + ship.radius;
+        const spd = ship.velocity.mag();
+        const n = { x: dx / dist, y: dy / dist };
+        // brake first if too fast, else steer at the surface point and gloss
+        const approachSpeed = dist - surface < 2500 ? 220 : 260 + Math.min(420, (dist - surface) * 0.08);
+        let want: number;
+        const vx = ship.velocity.x, vy = ship.velocity.y;
+        const closing = vx * n.x + vy * n.y;
+        const vv = Math.hypot(vx, vy);
+        const relVx = vx - b.velocity.x, relVy = vy - b.velocity.y;
+        const rel = Math.hypot(relVx, relVy);
+        if (rel > approachSpeed + 60) {
+            want = Math.atan2(relVy, relVx) + Math.PI; // retro burn
+        } else {
+            want = Math.atan2(dy, dx);
+        }
+        let err = want - ship.angle;
+        while (err > PI) err -= PI * 2;
+        while (err < -PI) err += PI * 2;
+        const maxTurn = 2.8 * dt;
+        ship.angle += clamp(err, -maxTurn, maxTurn);
+        (ship as unknown as { steerMotor?: number }).steerMotor = maxTurn > 0 ? clamp(err / maxTurn, -1, 1) : 0;
+        const thrustOn = rel > approachSpeed * 0.55 || dist - surface > 150;
+        if (thrustOn) {
+            ship.thrust.x = Math.cos(ship.angle);
+            ship.thrust.y = Math.sin(ship.angle);
+        } else {
+            ship.thrust.x = 0;
+            ship.thrust.y = 0;
+        }
+        playerTookControl = false;
+    }
     // Abort the takeover from the button (tapped in main.ts).
     function releaseHold() {
         if (!safeHold) return;
@@ -2451,177 +2508,6 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             voidEdge.classList.toggle("active", edge > 0.02);
         }
         universe.voidActive = voidActive;
-    }
-
-    // ===== Minimap (user 2026-11-09): local square, ship always centered =====
-    const minimapCanvas = document.getElementById("minimapCanvas") as HTMLCanvasElement | null;
-    const threatArrow = document.getElementById("threatArrow");
-    function drawMinimap() {
-        if (!minimapCanvas) return;
-        const ctx = minimapCanvas.getContext("2d");
-        if (!ctx) return;
-        const W = minimapCanvas.width, H = minimapCanvas.height, C = W / 2;
-        ctx.clearRect(0, 0, W, H);
-        ctx.fillStyle = "rgba(10,10,16,0.92)";
-        ctx.fillRect(0, 0, W, H);
-        const ship = universe.ship;
-        const spd = Math.hypot(ship.velocity.x, ship.velocity.y);
-        // local range: grows with speed so the star approach is always visible
-        let nearest = 1e9;
-        for (const b of impactBodies()) nearest = Math.min(nearest, Math.hypot(b.pos.x - ship.pos.x, b.pos.y - ship.pos.y));
-        const halfRange = clamp(Math.max(42000, spd * 14, nearest * 0.75), 42000, 190000);
-        const scale = (W / 2) / halfRange;
-        const toMap = (x: number, y: number): [number, number] => [C + (x - ship.pos.x) * scale, C + (y - ship.pos.y) * scale];
-        // grid
-        ctx.strokeStyle = "rgba(60,60,76,0.5)";
-        ctx.lineWidth = 1;
-        for (let i = 1; i < 4; i++) {
-            const g = C / 4 * i;
-            ctx.beginPath(); ctx.moveTo(g, 0); ctx.lineTo(g, H); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(0, g); ctx.lineTo(W, g); ctx.stroke();
-        }
-        // trail (our trajectory, user 2026-11-09)
-        ctx.strokeStyle = "rgba(198,198,232,0.55)";
-        ctx.lineWidth = 2;
-        ctx.setLineDash([4, 5]);
-        ctx.beginPath();
-        let first = true;
-        ship.track.forEachPoint((x, y) => {
-            const [mx, my] = toMap(x, y);
-            if (first) { ctx.moveTo(mx, my); first = false; } else ctx.lineTo(mx, my);
-        });
-        ctx.stroke();
-        ctx.setLineDash([]);
-        // route pilot path (user 2026-11-09)
-        if (routeNodeList.length > 0) {
-            const col = routePilot.phase === "stopped" ? "#E84838" : "#6ECB82";
-            ctx.strokeStyle = col;
-            ctx.globalAlpha = 0.75;
-            ctx.lineWidth = 2;
-            ctx.setLineDash([6, 4]);
-            ctx.beginPath();
-            ctx.moveTo(C, C);
-            for (let i = routeIdx; i < routeNodeList.length; i++) {
-                const [mx, my] = toMap(routeNodeList[i].x, routeNodeList[i].y);
-                ctx.lineTo(mx, my);
-            }
-            ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.globalAlpha = 1;
-            for (let i = routeIdx; i < routeNodeList.length; i++) {
-                const [mx, my] = toMap(routeNodeList[i].x, routeNodeList[i].y);
-                ctx.strokeStyle = col;
-                ctx.beginPath(); ctx.arc(mx, my, 4, 0, PI * 2); ctx.stroke();
-            }
-        }
-        // bodies: star + planets + asteroids + cargo (local only)
-        const drawDot = (x: number, y: number, r: number, color: string) => {
-            const [mx, my] = toMap(x, y);
-            if (mx < -20 || my < -20 || mx > W + 20 || my > H + 20) {
-                // off-map edge tick: arrow toward body at the edge
-                const dx = mx - C, dy = my - C, l = Math.hypot(dx, dy) || 1;
-                const ex = C + dx / l * (C - 8), ey = C + dy / l * (C - 8);
-                ctx.fillStyle = color;
-                ctx.beginPath(); ctx.arc(ex, ey, 3, 0, PI * 2); ctx.fill();
-                return;
-            }
-            ctx.fillStyle = color;
-            ctx.beginPath(); ctx.arc(mx, my, r, 0, PI * 2); ctx.fill();
-        };
-        drawDot(universe.star.pos.x, universe.star.pos.y, Math.max(6, universe.star.radius * scale), universe.star.color);
-        for (const pl of universe.planets) drawDot(pl.pos.x, pl.pos.y, Math.max(3, Math.min(8, pl.radius * scale)), pl.color);
-        for (const a of universe.asteroids) {
-            if (Math.hypot(a.pos.x - ship.pos.x, a.pos.y - ship.pos.y) > halfRange * 1.4) continue;
-            drawDot(a.pos.x, a.pos.y, 2.5, "rgba(150,135,120,0.9)");
-        }
-        for (const c of universe.cargoShips) drawDot(c.pos.x, c.pos.y, 3, c.hue);
-        // safety autopilot projected course (user 2026-11-09)
-        if (safeHold && universe.impactThreat) {
-            const t = universe.impactThreat;
-            const [tx, ty] = toMap(t.x, t.y);
-            ctx.strokeStyle = "rgba(232,72,56,0.9)";
-            ctx.lineWidth = 1.6;
-            ctx.setLineDash([3, 3]);
-            ctx.beginPath(); ctx.moveTo(C, C); ctx.lineTo(tx, ty); ctx.stroke();
-            ctx.setLineDash([]);
-            // evade target: perpendicular
-            const bx = tx - C, by = ty - C, bl = Math.hypot(bx, by) || 1;
-            const px = -by / bl, py = bx / bl;
-            ctx.strokeStyle = "rgba(232,72,56,0.6)";
-            ctx.beginPath(); ctx.moveTo(C, C);
-            ctx.lineTo(C + px * C * 0.7, C + py * C * 0.7);
-            ctx.stroke();
-            ctx.fillStyle = "#E84838";
-            ctx.beginPath(); ctx.arc(C + px * C * 0.7, C + py * C * 0.7, 4, 0, PI * 2); ctx.fill();
-        }
-        // velocity vector
-        if (spd > 20) {
-            const vLen = Math.min(C - 10, spd * scale);
-            const va = Math.atan2(ship.velocity.y, ship.velocity.x);
-            ctx.strokeStyle = "rgba(183,183,255,0.9)";
-            ctx.lineWidth = 1.6;
-            ctx.beginPath(); ctx.moveTo(C, C); ctx.lineTo(C + Math.cos(va) * vLen, C + Math.sin(va) * vLen); ctx.stroke();
-        }
-        // ship center + two joystick bars (speed = white, heading = button color)
-        ctx.save();
-        ctx.translate(C, C);
-        ctx.rotate(ship.angle);
-        ctx.fillStyle = "#B7B7FF";
-        ctx.beginPath(); ctx.moveTo(9, 0); ctx.lineTo(-6, 5); ctx.lineTo(-6, -5); ctx.closePath(); ctx.fill();
-        ctx.restore();
-        // two bars around hull (like the stick bars, constant size)
-        const bar = (ang: number, color: string, ring: number) => {
-            ctx.save();
-            ctx.translate(C + Math.cos(ang) * ring, C + Math.sin(ang) * ring);
-            ctx.rotate(ang);
-            ctx.fillStyle = color;
-            ctx.beginPath(); ctx.roundRect(-6, -1.2, 12, 2.4, 1.2); ctx.fill();
-            ctx.restore();
-        };
-        bar(ship.angle, "#7A7A9E", 18);
-        if (spd > 20) bar(Math.atan2(ship.velocity.y, ship.velocity.x), "#FFFFFF", 28);
-    }
-    function updateThreatArrow() {
-        if (!threatArrow) return;
-        const ship = universe.ship;
-        let bearing: number | null = null;
-        let color = "#D6A442";
-        const t = universe.impactThreat;
-        const cd = universe.starCountdown;
-        const prox = universe.starProximity;
-        // priority: impact threat (copies warning color) > star heat > void/edge
-        if (t !== null) {
-            bearing = Math.atan2(t.y - ship.pos.y, t.x - ship.pos.x);
-            color = t.level === "critical" ? "#E84838" : "#E84838";
-        } else if (cd !== null || prox >= 0.3) {
-            bearing = Math.atan2(universe.star.pos.y - ship.pos.y, universe.star.pos.x - ship.pos.x);
-            color = cd !== null ? "#FF6E5A" : "#D8A84E";
-        } else if (voidActive) {
-            bearing = Math.atan2(-ship.pos.y, -ship.pos.x);
-            color = "#E8E8F2";
-        } else if (ship.pos.mag() > 150000) {
-            bearing = Math.atan2(-ship.pos.y, -ship.pos.x);
-            color = "#D89A8A";
-        }
-        // near-star proximity counts as a threat too (user: arrow points at star)
-        if (bearing === null && prox >= 0.15 && Math.hypot(universe.star.pos.x - ship.pos.x, universe.star.pos.y - ship.pos.y) < 80000) {
-            bearing = Math.atan2(universe.star.pos.y - ship.pos.y, universe.star.pos.x - ship.pos.x);
-            color = "#D8A84E";
-        }
-        if (bearing === null) {
-            threatArrow.classList.remove("active");
-            return;
-        }
-        const w = window.innerWidth, h = window.innerHeight;
-        const cx = w / 2, cy = h / 2;
-        const R = Math.min(w, h) * 0.42 - 40;
-        const px = cx + Math.cos(bearing) * R;
-        const py = cy + Math.sin(bearing) * R;
-        threatArrow.style.left = px + "px";
-        threatArrow.style.top = py + "px";
-        threatArrow.style.color = color;
-        threatArrow.style.setProperty("--arrow-rot", (bearing * 180 / PI + 90) + "deg");
-        threatArrow.classList.add("active");
     }
 
     // Debug/testing hook (debug-only, #debug=1): exposes entity layout so
@@ -2714,8 +2600,6 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             updateBoostGlow(millis);
             updateScanFx();
             drawRadar();
-            drawMinimap();
-            updateThreatArrow();
         },
         setControlsShow: (show: boolean) => {
             isControlsShow = show;

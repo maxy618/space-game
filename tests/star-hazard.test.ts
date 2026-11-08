@@ -128,26 +128,30 @@ describe("destruction & respawn integration (VisibleUniverse15)", () => {
         u.star.mass = 4 / 3 * Math.PI * Math.pow(8_000, 3) * 0.5;
         const R = u.star.radius;
         const hoverDist = R * (STAR_KILL_FACTOR + 0.02); // deepest survivable hover
-        // Pure-model hover (fixed distance): gravity fall in the full sim
-        // dominates this integration test, so the tolerance contract is
-        // verified on starHeatStep directly while the universe still proves
-        // the profile hook is wired (ship exists, heat responds).
-        const runSteps = (tolerance: number) => {
-            let heat = 0;
-            let countdown: number | null = null;
+        const runHover = (tolerance: number, steps: number) => {
+            // fresh universe per run: solver state is not reusable after death
+            const v = new VisibleUniverse15(new Namer15(), 42n);
+            v.initRandom();
+            v.star.radius = R;
+            v.star.mass = u.star.mass;
+            v.ship.profile.heatTolerance = tolerance;
+            v.ship.pos.x = v.star.pos.x + hoverDist;
+            v.ship.pos.y = v.star.pos.y;
+            v.ship.velocity.x = 0;
+            v.ship.velocity.y = 0;
+            let millis = 1;
+            v.step(millis);
             let alive = 0;
-            for (let i = 0; i < 3000; i++) {
-                const r = starHeatStep(heat, hoverDist, R, 0.016, tolerance, 1, countdown);
-                heat = r.heat;
-                countdown = r.countdown;
-                if (r.destroy) break;
-                alive++;
+            for (let i = 0; i < steps; i++) {
+                millis += 16;
+                v.step(millis);
+                if (v.ship.heat > 0 && v.ship.heat < 1) alive++;
+                if (v.ship.pos.distance(v.star.pos) > R * STAR_CORONA_FACTOR * 3) break; // died & respawned
             }
             return alive;
         };
-        expect(u.ship.profile.heatTolerance).toBeDefined();
-        const normalSteps = runSteps(1);
-        const toughSteps = runSteps(3);
+        const normalSteps = runHover(1, 600);
+        const toughSteps = runHover(3, 600);
         expect(normalSteps).toBeGreaterThan(0);
         // a 3x heat-tolerant hull survives visibly longer in the same spot
         expect(toughSteps).toBeGreaterThan(normalSteps * 1.5);
