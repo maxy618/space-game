@@ -351,12 +351,14 @@ function Spaaaace(
         const arms = 2 + Math.floor(rng() * 2); // 2..3
         const armPhase = rng() * PI * 2;
         const wind = 2.6 + rng() * 1.2; // how tightly the spiral winds
-        // disc glow
+        // disc glow — VERY soft, distant-sky haze (never a "solid" blob):
+        // the arm dots sit *inside* a big radial fog that melts at the edges.
         const disc = g.createRadialGradient(0, 0, 0, 0, 0, R);
         disc.addColorStop(0, coreHue);
-        disc.addColorStop(0.25, hue);
+        disc.addColorStop(0.3, hue);
+        disc.addColorStop(0.7, hue);
         disc.addColorStop(1, "rgba(0,0,0,0)");
-        g.globalAlpha = 0.16;
+        g.globalAlpha = 0.10;
         g.fillStyle = disc;
         g.beginPath();
         g.arc(0, 0, R, 0, PI * 2);
@@ -374,7 +376,7 @@ function Spaaaace(
             const px = Math.cos(theta) * rad + (rng() - 0.5) * spread;
             const py = Math.sin(theta) * rad * 0.86 + (rng() - 0.5) * spread;
             const s = (0.6 + rng() * 1.8) * (SIZE / 256);
-            g.globalAlpha = 0.10 + rng() * 0.22 * (1 - t * 0.5);
+            g.globalAlpha = 0.06 + rng() * 0.13 * (1 - t * 0.5); // softened
             g.fillStyle = rng() < 0.16 ? coreHue : hue;
             g.beginPath();
             g.arc(px, py, s, 0, PI * 2);
@@ -2228,6 +2230,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const u = universe as unknown as { safetyEnabled?: boolean };
         if (u.safetyEnabled === false) return;
         const t = universe.impactThreat;
+        console.debug("[safe] check t=" + (t ? t.tti.toFixed(2) : "null") + " spd=" + Math.round(ship.velocity.mag()));
         if (t === null) return;
         const spd0 = ship.velocity.mag();
         if (spd0 < 300) return; // gentle landing approach — let her land
@@ -2243,9 +2246,11 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const impactDist = t.tti * spd0;
         const dwell = 900; // nose swing eats ~0.5-1s of margin
         const brakingSaves = brakeDist + dwell <= impactDist * 0.85;
+        console.debug("[safe] gate tti=" + t.tti.toFixed(2) + " brakeDist=" + Math.round(brakeDist + dwell) + " impD=" + Math.round(impactDist * 0.85) + " saves=" + brakingSaves);
         if (t.tti > 4.0 && brakingSaves) return;
         const mode: "brake" | "evade" = brakingSaves ? "brake" : "evade";
         safeMode = mode;
+        console.debug("[safe] ENGAGE " + mode);
         setSafeHold(true);
         routePilot.active = false; // safety outranks the route pilot
         setBoost(false);
@@ -2256,11 +2261,13 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const spd = ship.velocity.mag();
         // release: threat physics-gone (latch cleared) or down to safe speed
         if (t === null || spd <= 500) {
+            console.debug("[safe] RELEASE t=" + (t ? t.tti : "null") + " spd=" + Math.round(spd));
             setSafeHold(false);
             ship.thrust.x = 0;
             ship.thrust.y = 0;
             return;
         }
+        console.debug("[safe] hold t=" + t.tti.toFixed(2) + " spd=" + Math.round(spd) + " want=" + Math.round(universe.ship.angle * 180 / Math.PI));
         // The engine pushes ONLY along the nose (ship.angle): so the takeover
         // reORIENTS the ship to the dodge direction and burns forward.
         // brake → face retrograde and burn; evade → face the perpendicular

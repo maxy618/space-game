@@ -582,6 +582,19 @@ radarButton.addEventListener("click", () => {
 const safeBtn = document.getElementById("safeButton") as HTMLButtonElement | null;
 const landBtn = document.getElementById("landButton") as HTMLButtonElement | null;
 landBtn?.addEventListener("click", () => { activity.startAutoLand?.(); landBtn.blur(); });
+// Route autopilot CANCEL: left side above the telemetry — outside the radar
+// (user 2026-11-09); appears only while a route is flying.
+const autoCancelBtn = document.getElementById("autoCancel") as HTMLButtonElement | null;
+autoCancelBtn?.addEventListener("click", () => {
+    activity.cancelRoute?.();
+    autoCancelBtn.classList.remove("show");
+    if (radarOpen) setRadarOpen(false);
+    autoCancelBtn.blur();
+});
+setInterval(() => {
+    const info = activity.routeInfo?.();
+    autoCancelBtn?.classList.toggle("show", info?.active === true);
+}, 250);
 if (safeBtn) {
     let stored = "1";
     try { stored = localStorage.getItem("safetyEnabled") ?? "1"; } catch { /* private mode */ }

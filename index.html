@@ -111,7 +111,7 @@
     #safeButton {
       position: fixed;
       right: calc(14px + var(--safe-right));
-      top: calc(146px + var(--safe-top)); /* right below the radar */
+      bottom: calc(250px + var(--safe-bottom)); /* right above the landing button */
       width: 56px;
       height: 56px;
       padding: 0;
@@ -177,12 +177,40 @@
       transform: translateX(-50%) translateY(0);
     }
 
+    /* Route autopilot: CANCEL sits on the LEFT above the telemetry text
+       (NOT inside the radar — outside it, like pause does; user 2026-11-09).
+       Appears only while a route is flying. */
+    #autoCancel {
+      position: fixed;
+      left: calc(14px + var(--safe-left));
+      bottom: calc(118px + var(--safe-bottom));
+      width: 56px;
+      height: 56px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(44, 22, 19, 0.88);
+      border: 1px solid #a53a2a;
+      border-radius: 14px;
+      cursor: pointer;
+      z-index: 40;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #autoCancel.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    #autoCancel svg { display: block; }
     /* Landing assist button (user 2026-11-09): right stack, where the
        shield used to be; the shield moved one slot UP. */
     #landButton {
       position: fixed;
       right: calc(14px + var(--safe-right));
-      top: calc(208px + var(--safe-top)); /* column hang-up under the radar */
+      bottom: calc(184px + var(--safe-bottom));
       width: 56px;
       height: 56px;
       padding: 0;
@@ -199,8 +227,9 @@
       -webkit-tap-highlight-color: transparent;
     }
     #landButton:disabled {
-      opacity: 0.35;
+      opacity: 0.38;
       cursor: not-allowed;
+      background: rgba(44, 30, 30, 0.85); /* like the scanner's disabled red */
     }
     #landButton.armed {
       border-color: #9ED8A4;
@@ -324,7 +353,7 @@
       transition: background 0.15s, border-color 0.15s, opacity 0.2s, transform 0.1s;
       -webkit-tap-highlight-color: transparent;
     }
-    #scanButton { top: calc(270px + var(--safe-top)); }
+    #scanButton { bottom: calc(118px + var(--safe-bottom)); }
     #radarButton {
       position: fixed;
       top: calc(84px + var(--safe-top)); /* right UNDER the pause button */
@@ -1046,6 +1075,16 @@
   <!-- Landing / interaction (user 2026-11-09): appears near a body; the
        tap runs a smooth AUTOMATIC touchdown (brake, approach, descend).
        Takes over like the safety shield while running. -->
+  <!-- Route autopilot CANCEL: left side, above the telemetry text, only
+       visible while a route is flying (user 2026-11-09). -->
+  <button id="autoCancel" type="button" aria-label="Cancel autopilot">
+    <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.6" fill="none" stroke="#E8785A" stroke-width="1.5"/>
+      <line x1="8.6" y1="8.6" x2="15.4" y2="15.4" stroke="#E8785A" stroke-width="1.8" stroke-linecap="round"/>
+      <line x1="15.4" y1="8.6" x2="8.6" y2="15.4" stroke="#E8785A" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>
+  </button>
+
   <button id="landButton" type="button" aria-label="Land">
     <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <circle cx="12" cy="12" r="8.6" fill="none" stroke="#7A7A9E" stroke-width="1.4"/>
