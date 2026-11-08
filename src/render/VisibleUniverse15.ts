@@ -64,7 +64,10 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             s = (s * 6364136223846793005n + 1442695040888963407n) & ((1n << 64n) - 1n);
             return Number((s >> 11n) & ((1n << 53n) - 1n)) / 9007199254740992;
         };
-        const colors = ["#7A6AA0", "#4A7A8A", "#8A6A9A", "#5A8AAA"];
+        const colors = [
+            "#7A6AA0", "#4A7A8A", "#8A6A9A", "#5A8AAA", "#9A6A8A", "#5A8A9A",
+            "#A07A5A", "#6A8A6A", "#8A4A6A", "#4A6A8A", "#7A8A4A", "#9A5A7A",
+        ];
         const blobs = colors.map((color, i) => ({
             x: (next() - 0.5) * 60000,
             y: (next() - 0.5) * 60000,
@@ -95,6 +98,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         const giants = [
             { x: -260000, y: -90000, r: 85000, color: "#8A5E9A", alpha: 0.26 },
             { x: 150000, y: 260000, r: 70000, color: "#4E7E9A", alpha: 0.24 },
+            { x: 260000, y: 120000, r: 64000, color: "#9A5A8A", alpha: 0.22 },
         ];
         for (const g of giants) {
             blobs.push({
@@ -422,7 +426,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
 
     private buildNebulaSprites() {
         const dpr = window.devicePixelRatio || 1;
-        const SPRITE_PX = Math.round(256 * dpr);
+        const SPRITE_PX = Math.round(512 * dpr);
         const sprites = this.nebulaBlobs.map(blob => {
             const canvas = document.createElement("canvas");
             canvas.width = SPRITE_PX;
@@ -445,6 +449,27 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             ctx.globalAlpha = blob.alpha * 0.8;
             this.traceNebulaPath(ctx, blob, scale);
             ctx.fill();
+            // DETAIL (user 2026-11-09): bright filaments, hot knots, dust —
+            // baked in, zero per-frame cost.
+            ctx.globalCompositeOperation = "lighter";
+            for (let f = 0; f < 5; f++) {
+                const fa = (f / 5) * PI * 2 + 0.7 + blob.r * 0.000013;
+                const fd = blob.r * (0.12 + 0.11 * f) * scale;
+                const fl = blob.r * (0.38 - f * 0.05) * scale;
+                ctx.save();
+                ctx.translate(Math.cos(fa) * fd, Math.sin(fa) * fd * 0.72);
+                ctx.rotate(fa);
+                ctx.globalAlpha = blob.alpha * (0.55 - f * 0.05);
+                ctx.shadowColor = blob.color;
+                ctx.shadowBlur = SPRITE_PX * 0.02;
+                ctx.fillStyle = f % 2 === 0 ? "#FFF4E0" : blob.color;
+                ctx.beginPath();
+                ctx.ellipse(0, 0, fl, fl * 0.16, 0, 0, PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+            ctx.shadowBlur = 0;
+            ctx.globalCompositeOperation = "source-over";
             if (blob.r > 60_000) {
                 // GREAT SHEETS — real-photo composition (user 2026-11-09):
                 // bright inner filaments + dark dust lanes over the base,
@@ -725,6 +750,40 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             }
             context.lineCap = "butt";
         }
+        // LEFT/RIGHT steering engines (stub rework, user 2026-11-09): small
+        // opposed nozzles at the rear corners; they puff sideways while the
+        // A/D motor spools — sign indicates the turn direction.
+        {
+            const motor = (ship as unknown as Spacecraft15).steerMotor ?? 0;
+            const m = Math.abs(motor);
+            if (m > 0.05) {
+                const t = performance.now() / 1000;
+                const flick = 0.85 + 0.15 * Math.sin(t * 29);
+                const len = (6 + m * 16) * flick;
+                // engine on the side OPPOSITE the turn blows (turn = push):
+                // turning right (+motor) → left nozzle fires, and vice versa.
+                const side = motor > 0 ? -1 : 1;
+                const px = -5;
+                const py = side * 6.5;
+                context.save();
+                context.translate(px, py);
+                context.fillStyle = "rgba(170,225,255," + (0.25 + m * 0.55) + ")";
+                context.beginPath();
+                context.moveTo(0, -1.8);
+                context.lineTo(-len, 0);
+                context.lineTo(0, 1.8);
+                context.closePath();
+                context.fill();
+                context.fillStyle = "rgba(255,255,255," + (0.3 + m * 0.5) + ")";
+                context.beginPath();
+                context.moveTo(0, -0.9);
+                context.lineTo(-len * 0.55, 0);
+                context.lineTo(0, 0.9);
+                context.closePath();
+                context.fill();
+                context.restore();
+            }
+        }
         context.restore();
         helper.x = oldHelperX;
         helper.y = oldHelperY;
@@ -811,6 +870,9 @@ export class VisibleUniverse15 extends VisibleUniverse {
     impactThreat: { x: number; y: number; radius: number; tti: number; level: "warning" | "critical" } | null = null;
 
     /** Route autopilot (user 2026-11-09): target body + phase, for the line. */
+    safetyEnabled = true;
+    voidActive = false;
+    voidNear = 0;
     routeTarget: Planet | null = null;
     routePhase: "chase" | "brake" | "arrived" | "stopped" | "off" = "off";
     /** Multi-waypoint route (user 2026-11-09): world-space nodes. */

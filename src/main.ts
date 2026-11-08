@@ -577,6 +577,26 @@ radarButton.addEventListener("click", () => {
     setRadarOpen(!radarOpen);
     radarButton.blur();
 });
+// Safety system (user 2026-11-09): default ON (persisted). Tap toggles it;
+// tapping mid-takeover aborts the takeover and returns control at once.
+const safeBtn = document.getElementById("safeButton") as HTMLButtonElement | null;
+if (safeBtn) {
+    let stored = "1";
+    try { stored = localStorage.getItem("safetyEnabled") ?? "1"; } catch { /* private mode */ }
+    activity.setSafetyEnabled?.(stored === "1");
+    safeBtn.classList.toggle("engaged", stored === "1");
+    safeBtn.addEventListener("click", () => {
+        if (activity.isSafetyHold?.()) {
+            // abort: hand control straight back, drop the red (user 2026-11-09)
+            activity.releaseHold?.();
+        } else {
+            const on = !safeBtn.classList.contains("engaged");
+            activity.setSafetyEnabled?.(on);
+            safeBtn.classList.toggle("engaged", on);
+        }
+        safeBtn.blur();
+    });
+}
 // Close ONLY via the bottom-row ✕ (no backdrop close, no top cross).
 routeCloseBtn.addEventListener("click", () => setRadarOpen(false));
 // keyboard: Q scans, R toggles the radar

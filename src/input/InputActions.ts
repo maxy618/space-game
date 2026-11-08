@@ -32,12 +32,11 @@ export interface ContinuousActions {
     steer: number;
 }
 
-/** Physical-key → hold action mapping (P04-T01). */
-const HOLD_KEYS: Record<string, "forward" | "brake" | "steerLeft" | "steerRight"> = {
+/** Physical-key → hold action mapping (P04-T01, user 2026-11-09: W A D only —
+ * S removed; turning is the A/D engines). */
+const HOLD_KEYS: Record<string, "forward" | "steerLeft" | "steerRight"> = {
     KeyW: "forward",
     ArrowUp: "forward",
-    KeyS: "brake",
-    ArrowDown: "brake",
     KeyA: "steerLeft",
     ArrowLeft: "steerLeft",
     KeyD: "steerRight",
@@ -115,7 +114,7 @@ export class KeyboardSource {
         if (this.held.has("KeyD") || this.held.has("ArrowRight")) steer += 1;
         if (this.held.has("KeyA") || this.held.has("ArrowLeft")) steer -= 1;
         const forward = this.held.has("KeyW") || this.held.has("ArrowUp") ? 1 : 0;
-        const brake = this.held.has("KeyS") || this.held.has("ArrowDown") ? 1 : 0;
+        const brake = 0; // S key removed (user 2026-11-09: W A D only)
         return { forward, brake, steer, active: this.held.size > 0 };
     }
 

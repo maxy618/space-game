@@ -117,16 +117,14 @@ export function pilotStep(
 
     // INTERMEDIATE nodes (user 2026-11-09): no arrival, no braking window вЂ”
     // pure pursuit; the pass may drift slightly off the node by inertia.
+    // PURSUIT BOOST REMOVED (user 2026-11-09): the route autopilot must
+    // NEVER fire the burner itself — boost is the player's manual call.
     if (opts.intermediate) {
         s.phase = "chase";
-        // PURSUIT BOOST (user 2026-11-09): the radar autopilot may burn the
-        // booster on intermediate legs too (it never did before — this branch
-        // hard-coded boost:false), whenever the player could too.
-        const boost = d > 6000 && headingErr < Math.PI / 4;
-        s.wantBoost = boost;
+        s.wantBoost = false;
         const ax = Math.cos(bearing);
         const ay = Math.sin(bearing);
-        return { thrustX: ax, thrustY: ay, boost, stopRequested: false };
+        return { thrustX: ax, thrustY: ay, boost: false, stopRequested: false };
     }
 
     const arrive = target.radius + PILOT_ARRIVE_DIST;
@@ -157,11 +155,10 @@ export function pilotStep(
         return none;
     }
 
-    // chase: align + full thrust; boost whenever the player could too —
-    // far enough that burning it actually pays and roughly aligned.
-    const boost = d > 8000 && headingErr < Math.PI / 4;
-    s.wantBoost = boost;
+    // chase: align + full thrust. NO boost (user 2026-11-09: the autopilot
+    // never fires the burner itself).
+    s.wantBoost = false;
     const ax = Math.cos(bearing);
     const ay = Math.sin(bearing);
-    return { thrustX: ax, thrustY: ay, boost, stopRequested: false };
+    return { thrustX: ax, thrustY: ay, boost: false, stopRequested: false };
 }

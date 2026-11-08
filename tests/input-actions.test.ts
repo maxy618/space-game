@@ -70,10 +70,10 @@ describe("P04-T01 input action layer", () => {
         expect(layer.resolve().steer).toBe(1);
     });
 
-    it("S gives brake", () => {
+    it("S no longer brakes (W A D only)", () => {
         const { target, layer } = makeLayer();
         press(target, "KeyS");
-        expect(layer.resolve().brake).toBe(1);
+        expect(layer.resolve().brake).toBe(0);
     });
 
     it("interact edge fires once per press; key repeat is ignored", () => {

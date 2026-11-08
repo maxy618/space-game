@@ -366,26 +366,33 @@ export class ZoomedDrawScope {
     drawTrack(track: Track) {
         const context = this.context;
         if (SIMPLE_TRACK_DRAWING) {
-            // Grey dashes (user 2026-11-09): simply enough for a new player to
-            // see the ship moves — bolder than v1 after "вообще не видна"
-            // feedback, still restrained. Wish 44 (user 2026-11-09): the ship
-            // trail is now STRONGLY WIDER than before (2.5/zoom ≈ half of the
-            // old 5px route line, ~1.5× the old 1.7px trail) and SPARSER
-            // ([4,9] dashes instead of [5,5]), same restrained transparency.
+            // Grey SMOOTH trail (user 2026-11-09): per-segment age-faded line
+            // (no dash steps — the old dash pattern popped in discontinuously).
             // Points expire by age — the tail vanishes far behind the camera
             // while flying.
             const total = track.size();
             if (total < 2) return;
-            context.strokeStyle = "rgba(168, 168, 180, 0.3)";
-            context.lineWidth = 3.1 / this.zoom;
-            context.setLineDash([4 / this.zoom, 9 / this.zoom]);
-            context.beginPath();
+            context.lineCap = "round";
+            let prevX = 0, prevY = 0, prevAge = 0;
             let first = true;
-            track.forEachPoint((x, y) => {
-                if (first) { context.moveTo(x, y); first = false; }
-                else context.lineTo(x, y);
+            track.forEachPoint((x, y, age) => {
+                if (first) {
+                    prevX = x; prevY = y; prevAge = age;
+                    first = false;
+                    return;
+                }
+                const fade = clamp(1 - age / UniverseConst.TRACK_LIFETIME, 0, 1);
+                if (fade > 0.01) {
+                    context.strokeStyle = "rgba(168, 168, 180," + (0.05 + 0.3 * fade) + ")";
+                    context.lineWidth = (1.6 + 1.8 * fade) / this.zoom;
+                    context.beginPath();
+                    context.moveTo(prevX, prevY);
+                    context.lineTo(x, y);
+                    context.stroke();
+                }
+                prevX = x; prevY = y; prevAge = age;
             });
-            context.stroke();
+            context.lineCap = "butt";
             context.setLineDash([]);
         } else {
             if (track.positions.size() < 2) return;

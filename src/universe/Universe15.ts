@@ -66,4 +66,6 @@ export class Landing15 extends Landing implements Removable {
  */
 export class Spacecraft15 extends Spacecraft {
     autopilot: Autopilot15 | null = null;
+    /** Smoothed steering motor -1..1 (A/D or pilot) — drives the side-engine stub. */
+    steerMotor = 0;
 }

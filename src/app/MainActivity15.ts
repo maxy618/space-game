@@ -286,12 +286,12 @@ function Spaaaace(
         glint: false,
     });
     const starfield: StarDot[] = [];
-    for (let i = 0; i < 110; i++) starfield.push(makeStar());
+    for (let i = 0; i < 55; i++) starfield.push(makeStar()); // halved (user 2026-11-09: emptier sky)
     // Milky band (user 2026-11-09): a RESTRAINED cluster of tiny faint stars
     // along a diagonal — depth cue, not noise (user warning: the sky must
     // never read as mush). Faint alphas, sparse count.
     const band: StarDot[] = [];
-    for (let i = 0; i < 110; i++) {
+    for (let i = 0; i < 55; i++) {
         const t = starfieldRng.float();
         // diagonal band through the tile, gaussian-ish lateral spread
         const cx = t * 512;
@@ -309,7 +309,7 @@ function Spaaaace(
         });
     }
     const midfield: StarDot[] = [];
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 30; i++) {
         const s = makeStar();
         s.size = starfieldRng.minmax(0.9, 1.7);
         s.alpha = starfieldRng.minmax(0.25, 0.6);
@@ -317,7 +317,7 @@ function Spaaaace(
         midfield.push(s);
     }
     const dustfield: StarDot[] = [];
-    for (let i = 0; i < 36; i++) {
+    for (let i = 0; i < 18; i++) {
         dustfield.push({
             x: starfieldRng.minmax(0, 512),
             y: starfieldRng.minmax(0, 512),
@@ -567,8 +567,8 @@ function Spaaaace(
                 for (let i = 0; i < galaxies.length; i++) {
                     const g = galaxies[i];
                     const base = tileHash(0, 0, i * 7 + 3); // stable per galaxy
-                    // ~55% density: skip some (sparse sky), others stay fixed
-                    if (tileHash(0, 0, i * 13 + 5) > 0.55) continue;
+                    // ~28% density: emptier sky (halved again, user 2026-11-09)
+                    if (tileHash(0, 0, i * 13 + 5) > 0.72) continue;
                     const gx0 = tileHash(0, 0, i * 17 + 11) * P;
                     const gy0 = tileHash(0, 0, i * 19 + 13) * P;
                     const size = (g.rx * 3.4) * dpr;
@@ -898,6 +898,44 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     );
     const autopilot = new Autopilot15(universe.ship as Spacecraft15, universe);
     const flightStickDraw = flightStick.draw;
+    // Dual alignment bars (user 2026-11-09, WT-style): two wide bars pinned
+    // to the ship, CONSTANT screen size at any camera zoom — white shows the
+    // joystick direction, button-colored shows the ship heading; aligned =
+    // straight flight. Only while the stick is touched (fade on release).
+    let stickBarsAlpha = 0;
+    function drawStickBars(context: CanvasRenderingContext2D, _helper: CanvasHelper) {
+        const actions = inputLayer.resolve();
+        if (actions.stickActive) stickBarsAlpha = Math.min(1, stickBarsAlpha + 0.15);
+        else stickBarsAlpha = Math.max(0, stickBarsAlpha - 0.08);
+        if (stickBarsAlpha <= 0.01) return;
+        const dpr = window.devicePixelRatio || 1;
+        const cx = context.canvas.width / 2;
+        const cy = context.canvas.height / 2;
+        const stickA = Math.atan2(actions.stickY, actions.stickX);
+        const shipA = universe.ship.angle;
+        const bar = (ang: number, color: string) => {
+            context.save();
+            context.translate(cx, cy);
+            context.rotate(ang);
+            context.fillStyle = color;
+            context.globalAlpha = stickBarsAlpha * 0.9;
+            context.beginPath();
+            context.roundRect(-44 * dpr / 2, -9 * dpr / 2, 44 * dpr, 9 * dpr, 4.5 * dpr);
+            context.fill();
+            context.restore();
+        };
+        bar(stickA, "#FFFFFF");
+        bar(shipA, "#7A7A9E");
+        if (stickBarsAlpha >= 0.99) {
+            const deg = Math.round(Math.abs(((stickA - shipA) % (PI * 2) + PI * 3) % (PI * 2) - PI) * 180 / PI);
+            context.save();
+            context.font = `${12 * dpr}px 'Roboto Mono', monospace`;
+            context.fillStyle = "rgba(255,255,255," + (0.85 * stickBarsAlpha) + ")";
+            context.textAlign = "center";
+            context.fillText(deg + "°", cx, cy - 36 * dpr);
+            context.restore();
+        }
+    }
     const telemetry = Telemetry(universe, autopilot, topText, bottomText, topContainer, bottomContainer, autopilotText);
     const ship = universe.ship as Spacecraft15;
     ship.autopilot = autopilot;
@@ -910,32 +948,36 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         autopilot.enabled = enabled;
     }
 
-    // Keyboard flight (P04-T01): W thrust forward, S brake, A/D steer.
-    // Applied per frame; the flight stick wins while it is active.
+    // Keyboard flight (P04-T01, user 2026-11-09: W A D only — S removed).
+    // Steering is SMOOTH: the A/D motor spools up/down (expSmooth), so the
+    // ship rotates with acceleration instead of snapping. Powered turning
+    // is quick (test model is nimble).
     let lastFrameMillis = -1;
-    const KEYBOARD_TURN_RATE = 1.8; // radians per second while steering
+    let steerMotor = 0; // smoothed -1..1, also drives the side-engine stub
+    const KEYBOARD_TURN_RATE = 3.0; // rad/s at full motor (nimble test model)
     function applyKeyboardFlight(millis: number) {
         const actions = inputLayer.resolve();
         const target = universe.follow instanceof Spacecraft ? universe.follow as Spacecraft : null;
+        // safety takeover (user 2026-11-09): the joystick does not respond
+        // until the shield hands control back (or the player aborts it).
+        if (target !== null && safeHold) {
+            target.thrust.x = 0;
+            target.thrust.y = 0;
+            lastFrameMillis = millis;
+            return;
+        }
         if (target !== null && !actions.stickActive) {
             // any player flight input overrides the route pilot (except during
             // the threat stop, where steering back is the designed recovery)
-            if (actions.forward > 0 || actions.brake > 0 || actions.steer !== 0) playerTookControl = true;
+            if (actions.forward > 0 || actions.steer !== 0) playerTookControl = true;
             const dt = lastFrameMillis < 0 ? 0 : clamp((millis - lastFrameMillis) / 1000, 0, 0.1);
-            if (actions.steer !== 0) {
-                target.angle += actions.steer * KEYBOARD_TURN_RATE * dt;
-            }
+            // smooth motor: spools fast in (~8/s), decays fast out (~10/s)
+            steerMotor = expSmooth(steerMotor, actions.steer, dt, 8);
+            if (Math.abs(steerMotor) < 0.002) steerMotor = 0;
+            target.angle += steerMotor * KEYBOARD_TURN_RATE * dt;
+            (target as unknown as { steerMotor?: number }).steerMotor = steerMotor;
             if (actions.forward > 0) {
                 Vec2_makeWithAngleMag(target.thrust, target.angle, actions.forward);
-            } else if (actions.brake > 0) {
-                // brake: the engine always thrusts forward along the heading
-                // (Universe15 applies deltaV along ship.angle), so rotate the
-                // ship to face retrograde (opposite the velocity) and burn.
-                const v = target.velocity;
-                if (v.x !== 0 || v.y !== 0) {
-                    target.angle = atan2(v.y, v.x) + Math.PI;
-                }
-                Vec2_makeWithAngleMag(target.thrust, target.angle, actions.brake);
             } else {
                 // no keyboard thrust this frame; the stick release path or the
                 // autopilot owns thrust otherwise, zeroing here is safe because
@@ -1279,11 +1321,19 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 ctx2.stroke();
                 ctx2.setLineDash([]);
             }
-            if (star.scanned && radarZoom >= 1.6 && sx > 30 && sx < W - 30 && sy > 30 && sy < H - 30) {
-                ctx2.fillStyle = "rgba(198,198,232,0.8)";
-                ctx2.font = "10px 'Roboto Mono', monospace";
+            // star label: only when zoomed right in, opaque plate over the star
+            if (star.scanned && radarZoom >= 4 && sx > 30 && sx < W - 30 && sy > 30 && sy < H - 30) {
+                const txt = star.name + " (" + star.cls + ")";
+                ctx2.font = "bold 13px 'Roboto Mono', monospace";
+                const tw = txt.length * 7.8 + 12;
+                ctx2.fillStyle = "rgba(8,8,13,1)";
+                ctx2.fillRect(sx - tw / 2, sy + 14, tw, 18);
+                ctx2.strokeStyle = star.color;
+                ctx2.lineWidth = 1;
+                ctx2.strokeRect(sx - tw / 2 + 0.5, sy + 14.5, tw - 1, 17);
+                ctx2.fillStyle = "#FFFFFF";
                 ctx2.textAlign = "center";
-                ctx2.fillText(star.name + " (" + star.cls + ")", sx, sy + 16);
+                ctx2.fillText(txt, sx, sy + 28);
                 ctx2.textAlign = "left";
             }
         }
@@ -1324,21 +1374,18 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 pendingLabels.push({ x: px + 16, y: py + 3, text: "?", prio: 2, color: "rgba(122,122,158,0.7)" });
             }
         }
-        // label placement: only when zoomed in (min zoom grows with text size);
-        // greedy: highest priority first, skip any that would overlap a
-        // placed label (with a 3px gutter). Labels never touch each other.
-        // DEEP ZOOM (user 2026-11-09): zoomed into a scanned asteroid cloud,
-        // the BIGGEST visible rocks get short size labels ("~940 m").
+        // label placement (user 2026-11-09): ONLY when zoomed in well on
+        // the object (deep zoom). Labels sit OVER the object with a 100%
+        // opaque plate — always maximally readable, never ghosted.
         const placedLabels: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
         {
-            const minZoomFor = (text: string) => text.length > 2 ? 1.6 : 1.2;
+            const minZoomFor = (text: string) => text.length > 2 ? 4 : 3;
             pendingLabels.sort((a, b) => a.prio - b.prio);
-            ctx2.font = "10px 'Roboto Mono', monospace";
+            ctx2.font = "bold 13px 'Roboto Mono', monospace";
             for (const L of pendingLabels) {
                 if (radarZoom < minZoomFor(L.text)) continue;
-                const w = L.text.length * 6.2 + 4;
-                const h = 12;
-                const x0 = L.x - 2, y0 = L.y - 9, x1 = L.x + w, y1 = L.y + 3;
+                const w = L.text.length * 6.8 + 10;
+                const x0 = L.x - w / 2, y0 = L.y - 24, x1 = L.x + w / 2, y1 = L.y - 10;
                 if (x0 < 4 || y0 < 4 || x1 > W - 4 || y1 > H - 4) continue;
                 let clash = false;
                 for (const R of placedLabels) {
@@ -1346,14 +1393,14 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 }
                 if (clash) continue;
                 placedLabels.push({ x0, y0, x1, y1 });
-                // solid contrasting plate — text readable over any grid
-                ctx2.fillStyle = "rgba(8,8,13,0.88)";
+                // 100% opaque plate over the object (user 2026-11-09)
+                ctx2.fillStyle = "rgba(8,8,13,1)";
                 ctx2.fillRect(x0, y0, x1 - x0, y1 - y0);
-                ctx2.strokeStyle = "rgba(167,167,202,0.4)";
+                ctx2.strokeStyle = "rgba(198,198,232,0.85)";
                 ctx2.lineWidth = 1;
                 ctx2.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0 - 1, y1 - y0 - 1);
-                ctx2.fillStyle = L.color;
-                ctx2.fillText(L.text, L.x, L.y);
+                ctx2.fillStyle = "#FFFFFF";
+                ctx2.fillText(L.text, x0 + 5, y1 - 4);
             }
         }
         if (radarZoom >= 6) {
@@ -1365,10 +1412,10 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 cands.push({ x: px, y: py, text: "Ø" + Math.round(a.radius * 2) + " m", r: a.radius });
             }
             cands.sort((a, b) => b.r - a.r); // biggest first
-            ctx2.font = "10px 'Roboto Mono', monospace";
+            ctx2.font = "bold 10px 'Roboto Mono', monospace";
             for (const L of cands.slice(0, 24)) {
-                const w = L.text.length * 6.2 + 4;
-                const x0 = L.x - w / 2, y0 = L.y - 22, x1 = L.x + w / 2, y1 = L.y - 10;
+                const w = L.text.length * 6.8 + 10;
+                const x0 = L.x - w / 2, y0 = L.y - 24, x1 = L.x + w / 2, y1 = L.y - 10;
                 if (x0 < 4 || y0 < 4 || x1 > W - 4 || y1 > H - 4) continue;
                 let clash = false;
                 for (const R of placedLabels) {
@@ -1376,13 +1423,13 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 }
                 if (clash) continue;
                 placedLabels.push({ x0, y0, x1, y1 });
-                ctx2.fillStyle = "rgba(8,8,13,0.88)";
+                ctx2.fillStyle = "rgba(8,8,13,1)";
                 ctx2.fillRect(x0, y0, x1 - x0, y1 - y0);
-                ctx2.strokeStyle = "rgba(196,180,150,0.4)";
+                ctx2.strokeStyle = "rgba(196,180,150,0.6)";
                 ctx2.lineWidth = 1;
                 ctx2.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0 - 1, y1 - y0 - 1);
-                ctx2.fillStyle = "rgba(196,180,150,0.95)";
-                ctx2.fillText(L.text, x0 + 2, y1 - 3);
+                ctx2.fillStyle = "#FFFFFF";
+                ctx2.fillText(L.text, x0 + 5, y1 - 4);
             }
         }
         // scanned asteroids: ABSTRACT CLUSTERS (user 2026-11-09): the radar
@@ -1436,6 +1483,55 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             ctx2.restore();
             ctx2.globalAlpha = 1;
         }
+        // LOD object models (user 2026-11-09): zoomed in, objects grow
+        // REAL MODELS — asteroids become their true polygons, cargo ships
+        // hulls, planets get inner detail. Grows more detailed the nearer
+        // the zoom (true radar fidelity, not icons).
+        if (radarZoom >= 2) {
+            for (const a of universe.asteroids) {
+                if (!a.scanned) continue;
+                const dShip = Math.hypot(a.pos.x - shipPos.x, a.pos.y - shipPos.y);
+                if (dShip > 120_000) continue; // too far: abstract blob only
+                const [px, py] = worldToScreen(a.pos.x, a.pos.y);
+                if (px < -30 || py < -30 || px > W + 30 || py > H + 30) continue;
+                const baseR = Math.max(7, Math.min(34, a.radius * scale));
+                const verts = a.radii.length;
+                ctx2.save();
+                ctx2.translate(px, py);
+                ctx2.rotate(a.angle);
+                ctx2.fillStyle = "rgba(150,135,120,0.9)";
+                ctx2.beginPath();
+                for (let i = 0; i < verts; i++) {
+                    const ang = (i / verts) * PI * 2;
+                    const rr = baseR * a.radii[i] * (0.4 + 0.6 * Math.min(1, radarZoom / 5));
+                    const lx = Math.cos(ang) * rr;
+                    const ly = Math.sin(ang) * rr * 0.85;
+                    if (i === 0) ctx2.moveTo(lx, ly); else ctx2.lineTo(lx, ly);
+                }
+                ctx2.closePath();
+                ctx2.fill();
+                ctx2.strokeStyle = "rgba(225,210,190,0.8)";
+                ctx2.lineWidth = 1.2;
+                ctx2.stroke();
+                ctx2.restore();
+            }
+        }
+        if (radarZoom >= 3) {
+            // cargo hull model + planet detail (craters/continents hatches)
+            for (const cargo of universe.cargoShips) {
+                if (!cargo.scanned) continue;
+                const [px, py] = worldToScreen(cargo.pos.x, cargo.pos.y);
+                ctx2.save();
+                ctx2.translate(px, py);
+                ctx2.rotate(cargo.angle);
+                ctx2.fillStyle = cargo.hue;
+                ctx2.fillRect(-11, -3, 22, 6);
+                ctx2.fillRect(-7, -7, 5, 14);
+                ctx2.fillStyle = "rgba(255,255,255,0.5)";
+                ctx2.fillRect(9, -2, 2, 4);
+                ctx2.restore();
+            }
+        }
         // route nodes: markers + connecting line (map image of the world line)
         if (universe.routeNodes.length > 0) {
             const routeCol = universe.routePhase === "stopped" ? "232,72,56" : "110,200,130";
@@ -1467,7 +1563,28 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         // body (star/planet) — the position is exact there; farther away
         // the arrow stays centered in a growing YELLOW uncertainty quad
         // (two parallel + two perpendicular sides, center wandering).
-        {
+        // IN THE VOID: no ship at all — a wide boundary line shows WHICH
+        // SIDE the system lies on (user 2026-11-09).
+        const voidNow = (universe as unknown as { voidActive?: boolean }).voidActive === true;
+        if (voidNow) {
+            const starA = Math.atan2(star.pos.y - universe.ship.pos.y, star.pos.x - universe.ship.pos.x);
+            const ang = starA + PI; // from system center outward through us
+            const R = W * 0.47;
+            ctx2.save();
+            ctx2.strokeStyle = "rgba(232,232,242,0.5)";
+            ctx2.lineWidth = 5;
+            ctx2.setLineDash([8, 6]);
+            ctx2.beginPath();
+            ctx2.arc(c, c, R, ang - 1.1, ang + 1.1);
+            ctx2.stroke();
+            ctx2.setLineDash([]);
+            ctx2.fillStyle = "rgba(232,232,242,0.75)";
+            ctx2.font = "11px 'Roboto Mono', monospace";
+            ctx2.textAlign = "center";
+            ctx2.fillText("SYSTEM", c + Math.cos(ang) * (R - 16), c + Math.sin(ang) * (R - 16));
+            ctx2.textAlign = "left";
+            ctx2.restore();
+        } else if (true) {
             const [sx2, sy2] = worldToScreen(universe.ship.pos.x, universe.ship.pos.y);
             // precision reference = only SCANNED notable bodies (user 2026-
             // 11-09): an unread body fixates nothing — near a scanned star/
@@ -1753,13 +1870,14 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             while (err < -PI) err += PI * 2;
             const maxTurn = KEYBOARD_TURN_RATE * dt;
             ship.angle += clamp(err, -maxTurn, maxTurn);
+            (ship as unknown as { steerMotor?: number }).steerMotor = maxTurn > 0 ? clamp(err / maxTurn, -1, 1) : 0;
         }
         ship.thrust.x = intent.thrustX;
         ship.thrust.y = intent.thrustY;
         // boost gate (user 2026-11-09): the pilot may only fire the burner
         // when the PLAYER could have — at/above the 4000 cruise cap.
-        const speedOK = shipSpd >= UniverseConst.CRAFT_SPEED_LIMIT - 1;
-        setBoost(intent.boost && speedOK);
+        // LATER (user 2026-11-09): the autopilot must NEVER self-boost.
+        setBoost(false);
         universe.routeNodeIdx = routeIdx;
         universe.routePhase = routePilot.phase;
         if (routePilot.phase === "arrived") {
@@ -2001,10 +2119,17 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     const heatBanner = document.getElementById("heatBanner");
     const heatBannerText = document.getElementById("heatBannerText");
     const heatBannerTime = document.getElementById("heatBannerTime");
+    const heatEdge = document.getElementById("heatEdge");
     function updateHeatHud() {
         if (!heatBanner || !heatBannerText) return;
         const cd = universe.starCountdown;
         const prox = universe.starProximity;
+        // burn glow strength: ramps with proximity, full while counting down
+        if (heatEdge) {
+            const burn = cd !== null ? 0.95 : prox >= 0.25 ? 0.25 + prox * 0.55 : 0;
+            heatEdge.style.opacity = burn.toFixed(2);
+            heatEdge.classList.toggle("active", burn > 0.02);
+        }
         if (cd !== null) {
             if (!heatBanner.classList.contains("active")) heatBanner.classList.add("active");
             if (!heatBanner.classList.contains("critical")) heatBanner.classList.add("critical");
@@ -2018,6 +2143,147 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         } else {
             heatBanner.classList.remove("active", "critical");
         }
+    }
+
+    // ===== Safety system (user 2026-11-09): always-on collision guard =====
+    // Warns first (the 6s countdown); at the LAST moment (~1.5-2s) if the
+    // smart estimate says we would still be hit, it seizes control (the
+    // joystick stops responding), evades or brakes to ≤500 m/s, and hands
+    // control back once the threat clears. Tapping the shield mid-takeover
+    // aborts the takeover instantly (control back, red gone).
+    let safeHold = false;
+    let safeMode: "brake" | "evade" = "brake";
+    const safeButton = document.getElementById("safeButton") as HTMLButtonElement | null;
+    const safeEdge = document.getElementById("safeEdge");
+    const safeToast = document.getElementById("safeToast");
+    let safeToastTimer: number | null = null;
+    function safeShowToast(txt: string) {
+        if (!safeToast) return;
+        safeToast.textContent = txt;
+        safeToast.classList.add("active");
+        if (safeToastTimer !== null) window.clearTimeout(safeToastTimer);
+        safeToastTimer = window.setTimeout(() => safeToast.classList.remove("active"), 2400);
+    }
+    function setSafeHold(on: boolean) {
+        safeHold = on;
+        safeButton?.classList.toggle("hold", on);
+        safeEdge?.classList.toggle("active", on);
+        if (!on) {
+            playerTookControl = false;
+            if (universe.impactThreat === null || ship.velocity.mag() <= 520) safeShowToast("CONTROL RETURNED");
+        }
+    }
+    function safeEngageCheck() {
+        if (safeHold) return;
+        const u = universe as unknown as { safetyEnabled?: boolean };
+        if (u.safetyEnabled === false) return;
+        const t = universe.impactThreat;
+        if (t === null) return;
+        if (t.tti > 2.0) return; // last moment only — warning did its job
+        const spd0 = ship.velocity.mag();
+        if (spd0 < 300) return; // gentle landing approach — let her land
+        // smart pick: brake to ≤500 if it saves us, else evade sideways
+        const closing = 0; // tti already implies closing; use speed
+        const spd = ship.velocity.mag();
+        const dv = Math.max(0, Math.hypot(ship.velocity.x, ship.velocity.y));
+        const brakeDist = (dv * dv) / (2 * Math.max(1, ship.profile.engineAccel));
+        const threatDist = Math.hypot(t.x - ship.pos.x, t.y - ship.pos.y);
+        const mode: "brake" | "evade" = brakeDist <= threatDist * 0.75 ? "brake" : "evade";
+        safeMode = mode;
+        setSafeHold(true);
+        routePilot.active = false; // safety outranks the route pilot
+        setBoost(false);
+    }
+    function safeHoldUpdate(dt: number) {
+        if (!safeHold) return;
+        const t = universe.impactThreat;
+        const spd = ship.velocity.mag();
+        // release: threat physics-gone (latch cleared) or down to safe speed
+        if (t === null || spd <= 500) {
+            setSafeHold(false);
+            ship.thrust.x = 0;
+            ship.thrust.y = 0;
+            return;
+        }
+        if (safeMode === "brake") {
+            const m = spd;
+            ship.thrust.x = -ship.velocity.x / m;
+            ship.thrust.y = -ship.velocity.y / m;
+        } else {
+            // evade: perpendicular to the bearing to the threat, away from it,
+            // re-aimed every frame as the threat moves
+            const bx = t.x - ship.pos.x;
+            const by = t.y - ship.pos.y;
+            const bl = Math.hypot(bx, by) || 1;
+            // perpendicular unit (which side? the one the nose points away)
+            const px = -by / bl;
+            const py = bx / bl;
+            const side = px * ship.velocity.x + py * ship.velocity.y >= 0 ? 1 : -1;
+            ship.thrust.x = px * side;
+            ship.thrust.y = py * side;
+        }
+        playerTookControl = false; // keep diagnosing as the pilot, not the player
+    }
+    // Abort the takeover from the button (tapped in main.ts).
+    function releaseHold() {
+        if (!safeHold) return;
+        safeHold = false;
+        safeButton?.classList.remove("hold");
+        safeEdge?.classList.remove("active");
+        playerTookControl = false;
+        safeShowToast("CONTROL RETURNED");
+    }
+    function setSafetyEnabled(on: boolean) {
+        (universe as unknown as { safetyEnabled?: boolean }).safetyEnabled = on;
+        safeButton?.classList.toggle("engaged", on);
+        safeButton?.classList.toggle("hold", safeHold);
+        try { localStorage.setItem("safetyEnabled", on ? "1" : "0"); } catch { /* private mode */ }
+    }
+
+    // ===== Soft border / void (user 2026-11-09) =====
+    // No hard wall: past ~170 km edges darken + burgundy pulses strengthen,
+    // the warning shows; at the edge the ship is quietly woven back (no
+    // black fade); past ~190 km we are in the VOID: black pulsing edges, a
+    // short message, radar shows only the border line toward the system.
+    let voidActive = false;
+    const voidBanner = document.getElementById("voidBanner");
+    const voidBannerNear = document.getElementById("voidBannerNear");
+    const voidEdge = document.getElementById("voidEdge");
+    function updateVoidBorder() {
+        const d = ship.pos.mag();
+        const R = UniverseConst.UNIVERSE_RANGE;
+        // near-edge gradient of dread (0 at 150 km, 1 at the edge)
+        const near = clamp((d - 150_000) / 50_000, 0, 1);
+        if (d > 190_000 && !voidActive) voidActive = true;
+        // leaving the void: turned back toward the system OR safely inside
+        if (voidActive && d < 170_000) voidActive = false;
+        if (voidActive) {
+            const toStar = Math.atan2(-ship.pos.y, -ship.pos.x);
+            let err = Math.abs(((ship.angle - toStar + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+            if (err < 1.0) voidActive = false; // ± ~57° cone back home
+        }
+        // subtle wrap-back at the very edge (no blackout, invisible): when we
+        // physically hit the ring, the ship is woven back inside — the
+        // illusion of endless flight. Void state (once entered) stays until
+        // the player steers home, so we never fly away forever.
+        if (d > R - 40) {
+            const f = (R - 6000) / d;
+            ship.pos.x *= f;
+            ship.pos.y *= f;
+            Vec2_copy(ship.opos, ship.pos);
+        }
+        if (voidBanner) {
+            voidBanner.classList.toggle("active", voidActive);
+        }
+        if (voidBannerNear) {
+            voidBannerNear.classList.toggle("near", !voidActive && near > 0.05);
+        }
+        if (voidEdge) {
+            const edge = voidActive ? 0.95 : near * 0.55;
+            voidEdge.style.opacity = edge.toFixed(2);
+            voidEdge.classList.toggle("active", edge > 0.02);
+        }
+        universe.voidActive = voidActive;
     }
 
     // Debug/testing hook (debug-only, #debug=1): exposes entity layout so
@@ -2094,12 +2360,16 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         teleport: teleport,
         draw: (millis: number, context: CanvasRenderingContext2D, helper: CanvasHelper) => {
             applyKeyboardFlight(millis);
+            safeHoldUpdate(universe.dt);
             pilotUpdate(universe.dt);
             universe.simulateFrame(millis);
             updateImpactWarning(millis);
+            safeEngageCheck();
+            updateVoidBorder();
             updateHeatHud();
             space(context, helper);
             flightStickDraw(context, helper);
+            drawStickBars(context, helper);
             telemetry(millis);
             updateBoostGlow(millis);
             updateScanFx();
@@ -2120,6 +2390,9 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         clearRoute: () => { clearRouteNodes(); cancelRoute(); },
         setRadarPickMode: (v: boolean) => { radarPickMode = v; },
         radarIsPickMode: () => radarPickMode,
+        setSafetyEnabled,
+        releaseHold,
+        isSafetyHold: () => safeHold,
         setRadarDeleteMode: (v: boolean) => { radarDeleteMode = v; },
         radarIsDeleteMode: () => radarDeleteMode,
         /** Click-to-delete: remove the node under a radar point (px from center). */

@@ -8,16 +8,17 @@ import { createRoutePilot, pilotStep, RouteThreat } from "../src/sim/RoutePilot"
 const TARGET = { x: 100_000, y: 0, radius: 2_000 };
 
 describe("route pilot", () => {
-    it("chase: full thrust toward target, boost engaged when far and aligned", () => {
+    it("chase: full thrust toward target, NEVER boost (manual-only)", () => {
         const s = createRoutePilot();
         s.active = true;
         const intent = pilotStep(s, TARGET, [], { x: 0, y: 0, vx: 0, vy: 0, angle: 0 }, 0.016, 1000);
         expect(intent.thrustX).toBeCloseTo(1, 3);
         expect(intent.thrustY).toBeCloseTo(0, 3);
-        expect(intent.boost).toBe(true);
+        expect(intent.boost).toBe(false);
+        expect(s.wantBoost).toBe(false);
     });
 
-    it("intermediate: pursuit boost engages when far and roughly aligned", () => {
+    it("intermediate: pursuit NEVER boosts (boost is manual-only)", () => {
         const s = createRoutePilot();
         s.active = true;
         const intent = pilotStep(
@@ -27,7 +28,7 @@ describe("route pilot", () => {
             { intermediate: true },
         );
         expect(s.phase).toBe("chase");
-        expect(intent.boost).toBe(true);
+        expect(intent.boost).toBe(false);
         expect(intent.thrustX).toBeCloseTo(1, 3);
     });
 

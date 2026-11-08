@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-    timeToImpact, impactGatesPass, impactLatchedThreat, evaluateImpact,
+    timeToImpact, impactGatesPass, impactLatchedThreat, evaluateImpact, decideSafeAction,
     IMPACT_NOSE_HALF_ANGLE, IMPACT_MIN_CLOSING, IMPACT_CLEAR_SECONDS,
 } from "../src/universe/CollisionPredict";
 
@@ -113,5 +113,21 @@ describe("impact latch (user 2026-11-09)", () => {
         expect(impactLatchedThreat(null, 500)).toBe(false); // miss / separating
         expect(impactLatchedThreat(IMPACT_CLEAR_SECONDS + 0.1, 500)).toBe(false); // out of window
         expect(impactLatchedThreat(2.0, IMPACT_MIN_CLOSING - 1)).toBe(false); // braked to landing pace
+    });
+});
+
+describe("decideSafeAction (safety system last-moment pick)", () => {
+    it("brakes when the stopping distance fits with margin", () => {
+        // dv=2000, a=1000 → brakeDist 2000 m; threat 10 km away
+        expect(decideSafeAction(2500, 4, 1000, 500)).toBe("brake");
+    });
+
+    it("evades when braking would arrive too late", () => {
+        // dv=4000, a=1000 → brakeDist 8000 m; threat only 3 km away
+        expect(decideSafeAction(4500, 0.8, 1000, 500)).toBe("evade");
+    });
+
+    it("no closing risk → brake (cheap default)", () => {
+        expect(decideSafeAction(0, null, 1000, 500)).toBe("brake");
     });
 });

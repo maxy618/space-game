@@ -101,6 +101,30 @@ export function impactGatesPass(g: ImpactGateInput): boolean {
 }
 
 /**
+ * Safety-system decision (user 2026-11-09): at the LAST moment, choose
+ * whether braking to ≤500 m/s saves us, or evasive thrust (perpendicular
+ * dodge) is cheaper. Pure and testable.
+ *
+ * @param closing  relative closing speed (m/s)
+ * @param tti      seconds to impact predicted by the constant-velocity model
+ * @param engineAccel engine accel (m/s²)
+ * @param speedLimit safe speed to reach (500)
+ */
+export function decideSafeAction(
+    closing: number,
+    tti: number | null,
+    engineAccel: number,
+    safeSpeed: number,
+): "brake" | "evade" {
+    if (tti === null) return "brake";
+    // distance closed while braking to safe speed, plus 25% margin
+    const dv = Math.max(0, closing - safeSpeed);
+    const brakeDist = (dv * dv) / (2 * Math.max(1, engineAccel));
+    const closingDist = closing * tti;
+    return brakeDist <= closingDist * 0.75 ? "brake" : "evade";
+}
+
+/**
  * Latched-warning persistence (user 2026-11-09): once a gated warning
  * fires, it must NOT die because the player turns the nose away. The ship
  * is still flying into the body — the prediction is pure physics (TTI and
