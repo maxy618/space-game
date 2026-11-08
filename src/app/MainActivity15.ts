@@ -1007,9 +1007,13 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     let pendingScanClock = 0;
     /** Seconds since the last fired scan (NaN = never) — fix staleness. */
     let lastScanAge = Number.NaN;
+    /** Scanned-area footprints (world meters) — shown colored on the radar. */
+    const scannedZones: Array<{ x: number; y: number; r: number }> = [];
     function firePendingScan() {
         pendingScan = false;
         lastScanAge = 0;
+        const fx = universe.ship.pos.x;
+        const fy = universe.ship.pos.y;
         const res = universe.triggerScan();
         if (res.total > 0 && scanResult) {
             // results banner: ONLY new finds, nothing at all when zero —
@@ -1023,6 +1027,9 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             if (scanResultTimer !== null) window.clearTimeout(scanResultTimer);
             scanResultTimer = window.setTimeout(() => scanResult.classList.remove("active"), 3200);
         }
+        // mark the footprint (colored zone on the radar, even with no finds)
+        scannedZones.push({ x: fx, y: fy, r: SCAN_RADIUS });
+        while (scannedZones.length > 8) scannedZones.shift();
     }
     function triggerPlayerScan(): number {
         // speed gate (user: "скорость для скана снижаем ниже 500")
@@ -1184,6 +1191,29 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 ctx2.lineTo(W, sy);
                 ctx2.stroke();
             }
+        }
+        // scanned-area footprints (user 2026-11-09): colored zones where a
+        // scan already fired; everything else stays dark — scanned space
+        // reads COLORED, unscanned space reads DARK.
+        for (const z of scannedZones) {
+            const [zx, zy] = worldToScreen(z.x, z.y);
+            const zr = z.r * scale;
+            if (zr < 2 || zr > 2000) { /* still drawn clamped below */ }
+            const grad = ctx2.createRadialGradient(zx, zy, 0, zx, zy, Math.max(2, Math.min(2000, zr)));
+            grad.addColorStop(0, "rgba(110,200,130,0.10)");
+            grad.addColorStop(0.8, "rgba(110,200,130,0.05)");
+            grad.addColorStop(1, "rgba(110,200,130,0)");
+            ctx2.fillStyle = grad;
+            ctx2.beginPath();
+            ctx2.arc(zx, zy, Math.max(2, Math.min(2000, zr)), 0, PI * 2);
+            ctx2.fill();
+            ctx2.strokeStyle = "rgba(110,200,130,0.25)";
+            ctx2.lineDashOffset = 0;
+            ctx2.setLineDash([2, 6]);
+            ctx2.beginPath();
+            ctx2.arc(zx, zy, Math.max(2, Math.min(2000, zr)), 0, PI * 2);
+            ctx2.stroke();
+            ctx2.setLineDash([]);
         }
         // orbit rings (hairline) — ONLY for nearby planets (user 2026-11-09):
         // far orbits are a hard hint and must not show across the whole map.

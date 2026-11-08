@@ -39,7 +39,7 @@ describe("scan state machine", () => {
 
     it("reveals bodies within radius only, idempotently", () => {
         const bodies = [
-            { x: 50_000, y: 0, scanned: false },   // in range
+            { x: 40_000, y: 0, scanned: false },   // in range (48 km scan)
             { x: 200_000, y: 0, scanned: false },  // out of range
             { x: 0, y: 0, scanned: true },         // already known
         ];

@@ -9,8 +9,12 @@
  * visual, the reveal happens at once, like NMS).
  */
 
-/** Reveal radius (m) — covers most of a system from mid-orbit. */
-export const SCAN_RADIUS = 120_000;
+/**
+ * Reveal radius (m) — a LOCAL working circle (user 2026-11-09): roughly a
+ * quarter of the radar square's span. Big enough to matter in a belt,
+ * small enough that finding everything is not trivial.
+ */
+export const SCAN_RADIUS = 48_000;
 /** Cooldown between scans (seconds; 15s per user 2026-11-09). */
 export const SCAN_COOLDOWN = 15;
 /** Wave visual duration (seconds). */
