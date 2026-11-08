@@ -111,7 +111,7 @@
     #safeButton {
       position: fixed;
       right: calc(14px + var(--safe-right));
-      bottom: calc(316px + var(--safe-bottom)); /* above the landing button */
+      top: calc(146px + var(--safe-top)); /* right below the radar */
       width: 56px;
       height: 56px;
       padding: 0;
@@ -182,7 +182,7 @@
     #landButton {
       position: fixed;
       right: calc(14px + var(--safe-right));
-      bottom: calc(250px + var(--safe-bottom));
+      top: calc(208px + var(--safe-top)); /* column hang-up under the radar */
       width: 56px;
       height: 56px;
       padding: 0;
@@ -324,8 +324,10 @@
       transition: background 0.15s, border-color 0.15s, opacity 0.2s, transform 0.1s;
       -webkit-tap-highlight-color: transparent;
     }
-    #scanButton { bottom: calc(118px + var(--safe-bottom)); }
-    #radarButton { bottom: calc(184px + var(--safe-bottom)); }
+    #scanButton { top: calc(270px + var(--safe-top)); }
+    #radarButton {
+      position: fixed;
+      top: calc(84px + var(--safe-top)); /* right UNDER the pause button */
     #autoPilotButton {
       position: fixed;
       top: calc(84px + var(--safe-top)); /* РїРѕРґ РїР°СѓР·РѕР№ (user 2026-11-09) */
