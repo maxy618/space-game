@@ -9,19 +9,22 @@
  *         the deeper the ship flies (quadratic proximity curve)
  *   dist ≤ R × STAR_KILL_FACTOR   → touching the star: instant destruction
  *
- * Hot-zone countdown (user 2026-11-09): entering the HOTTEST half of the
- * danger zone starts a countdown — at least 8 seconds (weaker stars and
- * tougher profiles give more), scaled by how deep the ship is. Leaving
- * the hot zone pauses the countdown; full cooldown resets it. Destroyed
- * only by the countdown expiring or by touching the star itself.
+ * Hot-zone countdown (user 2026-11-09, reworked 2026-11-09 star-zones):
+ * heating and the countdown are SEPARATE areas now — heating starts far
+ * out (corona ≈ 2.2R), the countdown starts only very close (≈1.55R),
+ * so the two zones never sit side by side. Deeper = stronger heating
+ * AND less time: grace shrinks with depth and the timer drains faster
+ * the closer you sit. Leaving the hot zone pauses the countdown; full
+ * cooldown resets it. Destroyed only by the countdown expiring or by
+ * touching the star itself.
  */
 
 /** Heating begins (corona outer edge), × star radius. */
-export const STAR_CORONA_FACTOR = 1.9;
+export const STAR_CORONA_FACTOR = 1.6;
 /** Inner boundary (≈ touching the surface) — instant destruction, × radius. */
 export const STAR_KILL_FACTOR = 1.08;
 /** Proximity t beyond which the hot-zone countdown starts (0..1). */
-export const STAR_HOTZONE_T = 0.45;
+export const STAR_HOTZONE_T = 0.55;
 /** Heat recovered per second while outside the corona. */
 export const STAR_COOL_RATE = 0.3;
 /** Countdown resets when the hull cools below this. */
@@ -78,8 +81,8 @@ export function starHeatStep(
     const hot = t >= STAR_HOTZONE_T;
     let countdown = countdownIn;
     if (hot) {
-        // entering hottest zone starts the timer; deeper = less grace.
-        // Minimum 8 s (guaranteed), scaled by hull tolerance.
+        // entering hottest zone starts the timer; deeper = less grace AND a
+        // faster drain — the closer you sit, the less time you have.
         if (countdown === null) {
             const depth = (t - STAR_HOTZONE_T) / (1 - STAR_HOTZONE_T); // 0..1 in the hot half
             countdown = Math.max(8, (16 - 8 * depth) * tolerance) * Math.min(1.6, Math.max(1, starRadius / 3600));

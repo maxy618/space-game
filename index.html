@@ -1007,6 +1007,84 @@
       border-radius: 4px;
       font-weight: bold;
     }
+
+    /* Top-right cluster: 4 square buttons + minimap (user 2026-11-09).
+       Square buttons, small gaps, slightly generous size. */
+    #topRightCluster {
+      position: fixed;
+      top: calc(10px + var(--safe-top));
+      right: calc(10px + var(--safe-right));
+      z-index: 46;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+    }
+    #topRightCluster .clusterRow {
+      display: flex;
+      gap: 6px;
+    }
+    #topRightCluster button {
+      width: 58px;
+      height: 58px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(22, 22, 29, 0.82);
+      border: 1px solid var(--color-Eigengrau3);
+      border-radius: 13px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #topRightCluster button:active { transform: translateY(1px); background: rgba(60,60,76,0.9); border-color: var(--color-Eigengrau4); }
+    #topRightCluster button svg { display: block; }
+    #pauseButton, #radarButton, #safeButton, #settingsButton { position: static; }
+    #safeButton.engaged { border-color: var(--color-Console); background: rgba(60,60,76,0.92); box-shadow: 0 0 10px rgba(183,183,255,0.25); }
+    #safeButton.hold { border-color: #ff8a6a; background: rgba(44,22,19,0.92); box-shadow: 0 0 18px rgba(232,84,32,0.5); animation: heatEdgePulse 0.9s ease-in-out infinite; }
+    #radarButton.open { border-color: var(--color-Console); background: rgba(60,60,76,0.92); }
+    #minimapWrap {
+      width: 184px;
+      height: 184px;
+      background: rgba(10,10,16,0.72);
+      border: 1px solid var(--color-Eigengrau3);
+      border-radius: 14px;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    #minimapCanvas { width: 100%; height: 100%; display: block; }
+    @media (max-width: 700px) {
+      #minimapWrap { width: 132px; height: 132px; }
+      #topRightCluster button { width: 52px; height: 52px; }
+    }
+    /* Threat arrows at the screen edge (user 2026-11-09): blinking,
+       copies the warning text color, points at the threat. */
+    #threatArrow {
+      position: fixed;
+      z-index: 44;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      filter: drop-shadow(0 0 6px currentColor);
+      animation: threatBlink 0.7s steps(2, start) infinite;
+      transform: translate(-50%, -50%) rotate(var(--arrow-rot, 0deg));
+      color: #D6A442;
+    }
+    #threatArrow.active { opacity: 1; }
+    @keyframes threatBlink { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0.25; } }
+    @media (prefers-reduced-motion: reduce) { #threatArrow { animation: none; } }
+    /* Banners must never cover the top-right cluster (user mandate). */
+    #impactWarning.critical { z-index: 43; }
+    #heatBanner, #voidBanner, #voidBannerNear, #safeToast { z-index: 43; }
+    @media (max-width: 900px) {
+      #impactWarning, #heatBanner, #voidBanner, #voidBannerNear, #scanHint, #scanResult, #safeToast {
+        left: 36%;
+        max-width: 48vw;
+        white-space: normal;
+        text-align: center;
+      }
+    }
   </style>
 </head>
 <body>
@@ -1052,6 +1130,7 @@
 
   <!-- Player pause button: two rounded bars only вЂ” the orbit ring is gone,
        leaving just the square button itself (user 2026-11-09). -->
+  <div id="topRightCluster"><div class="clusterRow">
   <button id="pauseButton" type="button" aria-label="Pause">
     <svg width="32" height="32" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <rect x="6.6" y="5.4" width="3.2" height="11.2" rx="1.6" fill="#B7B7FF" />
@@ -1072,14 +1151,7 @@
     </svg>
   </button>
 
-  <button id="landButton" type="button" aria-label="Land">
-    <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <circle cx="12" cy="12" r="8.6" fill="none" stroke="#7A7A9E" stroke-width="1.4"/>
-      <path d="M12 5 V14" stroke="#B7B7FF" stroke-width="1.6" stroke-linecap="round"/>
-      <path d="M8.4 11 L12 14.6 L15.6 11" fill="none" stroke="#B7B7FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-      <line x1="6" y1="18.6" x2="18" y2="18.6" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
-    </svg>
-  </button>
+>
 
   <!-- Boost burner (user 2026-11-08): sits under the pause button, thumb-
        reachable in the top-right stack. Enabled only at/above the 4000
@@ -1113,7 +1185,7 @@
     </svg>
   </button>
 
-  <button id="radarButton" type="button" aria-label="Radar">
+  <button id="radarButton" type="button" aria-label="Minimap">
     <svg width="30" height="30" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <circle cx="12" cy="12" r="9" fill="none" stroke="#3C3C4C" stroke-width="1.4"/>
       <circle cx="12" cy="12" r="5.4" fill="none" stroke="#7A7A9E" stroke-width="1.3"/>
@@ -1122,6 +1194,13 @@
       <line x1="12" y1="12" x2="17.2" y2="9.4" stroke="#7A7A9E" stroke-width="1" stroke-dasharray="1.6 1.6"/>
     </svg>
   </button>
+  <button id="settingsButton" type="button" aria-label="Settings">
+    <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.2" fill="none" stroke="#B7B7FF" stroke-width="1.6"/>
+      <path d="M12 2.2 V5.4 M12 18.6 V21.8 M2.2 12 H5.4 M18.6 12 H21.8 M5.1 5.1 L7.4 7.4 M16.6 16.6 L18.9 18.9 M18.9 5.1 L16.6 7.4 M7.4 16.6 L5.1 18.9" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+  </button>
+  </div><div id="minimapWrap" title="Open radar"><canvas id="minimapCanvas" width="368" height="368"></canvas></div></div>>
 
   <!-- Radar / system map overlay: schematic view, shared with autopilot.
        Closes ONLY via the вњ• button above the map's top-right corner. -->
@@ -1206,6 +1285,7 @@
     <dl id="objectInfoRows"></dl>
   </div>
 
+  <div id="threatArrow" aria-hidden="true"><svg width="34" height="34" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 3 L20 19 L12 15.5 L4 19 Z" fill="currentColor" stroke="rgba(0,0,0,0.35)" stroke-width="1"/></svg></div>
   <div id="pauseMenu" hidden>
     <div class="pause-menu-title">PAUSED</div>
     <button id="pauseContinue" class="pause-menu-btn" type="button">CONTINUE</button>

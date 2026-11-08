@@ -413,12 +413,16 @@ export class Universe extends Simulator {
         this.ship = new Spacecraft();
         this.ship.id = SHIP_STABLE_ID;
 
-        Vec2_makeWithAngleMag(
-            this.ship.pos,
-            this.rngForInit.float() * PI * 2,
-            this.rngForInit.minmax(UniverseConst.PLANET_ORBIT_RANGE_MIN, UniverseConst.PLANET_ORBIT_RANGE_MAX)
-        ).addSelf(this.star.pos);
-        this.ship.angle = this.rngForInit.float() * PI * 2;
+        const innermostSp = this.planets.length > 0 ? this.planets.slice().sort((a,b)=>a.pos.distance(this.star.pos)-b.pos.distance(this.star.pos))[0] : null;
+        const spawnR = innermostSp ? innermostSp.pos.distance(this.star.pos) : UniverseConst.PLANET_ORBIT_RANGE_MIN;
+        const spawnA = innermostSp ? Math.atan2(innermostSp.pos.y - this.star.pos.y, innermostSp.pos.x - this.star.pos.x) + Math.PI * 0.5 : Math.PI / 4;
+        Vec2_makeWithAngleMag(this.ship.pos, spawnA, spawnR).addSelf(this.star.pos);
+        const spawnPeriod = Math.sqrt(spawnR * spawnR * spawnR / Math.max(1, this.star.mass)) * UniverseConst.KEPLER_CONSTANT;
+        const spawnSpd = spawnPeriod > 0 ? 2 * Math.PI * spawnR / spawnPeriod : 0;
+        this.ship.velocity.x = Math.cos(spawnA + Math.PI / 2) * spawnSpd;
+        this.ship.velocity.y = Math.sin(spawnA + Math.PI / 2) * spawnSpd;
+        Vec2_copy(this.ship.opos, this.ship.pos);
+        this.ship.angle = spawnA + Math.PI / 2;
         this.addEntity(this.ship);
 
         this.ringfence.add(this.ship);
