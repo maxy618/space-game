@@ -12,9 +12,7 @@
  *   3 celestial   — orbits, gravity rings, stars, planets (world space)
  *   4 entities    — sparks, ship, exhaust, track (world space)
  *   5 foreground  — dust motes, parallax 1.3 px/m (screen space)
- *   6 emissive    — additive glow/corona/disc-spill (screen space, P08)
- *   7 postFX      — WebGL2 screen-space compositor (P08), tier-gated
- *   8 ui          — DOM: telemetry, pause menu, joystick (document space)
+ *   6 ui          — DOM: telemetry, pause menu, joystick (document space)
  */
 
 import { worldToScreen } from "./Camera";
@@ -37,8 +35,6 @@ export const LAYERS: LayerDef[] = [
     { id: "celestial", name: "Orbits, rings, stars, planets", space: "world", alpha: 1, owner: "render/VisibleUniverse15" },
     { id: "entities", name: "Sparks, ship, exhaust, track", space: "world", alpha: 1, owner: "render/VisibleUniverse15" },
     { id: "foreground", name: "Dust motes", space: "screen", alpha: 0.16, owner: "MainActivity15.Spaaaace" },
-    { id: "emissive", name: "Additive glow / light spill", space: "screen", alpha: 0.9, owner: "render/PostFX + VisibleUniverse15" },
-    { id: "postFX", name: "WebGL2 postFX compositor", space: "screen", alpha: 1, owner: "render/PostFX" },
     { id: "ui", name: "Telemetry, pause, joystick", space: "screen", alpha: 1, owner: "main.ts + input/FlightStick" },
 ];
 

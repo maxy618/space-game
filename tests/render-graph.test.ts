@@ -6,9 +6,9 @@ import { describe, it, expect } from "vitest";
 import { LAYERS, layerById, layerOrder, validateGraph } from "../src/camera/Layers";
 
 describe("P06-T02 layer render graph", () => {
-    it("draw order is fixed and back-to-front: backdrop → far → grid → celestial → entities → foreground → emissive → postFX → ui", () => {
+    it("draw order is fixed and back-to-front: backdrop → far → grid → celestial → entities → foreground → ui", () => {
         expect(layerOrder()).toEqual([
-            "backdrop", "far", "grid", "celestial", "entities", "foreground", "emissive", "postFX", "ui",
+            "backdrop", "far", "grid", "celestial", "entities", "foreground", "ui",
         ]);
     });
 

@@ -864,28 +864,6 @@
     #pauseContinue {
       border-color: var(--color-Autopilot);
     }
-    #pauseSettingsPanel {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      background: rgba(10, 10, 16, 0.82);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      z-index: 55;
-      user-select: none;
-      -webkit-user-select: none;
-    }
-    #pauseSettingsPanel[hidden] { display: none; }
-    .tier-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-    .tier-btn { width: 110px; }
-    .tier-btn.tier-active {
-      border-color: var(--color-Autopilot);
-      background: rgba(30, 30, 44, 0.95);
-    }
 
     .top-container {
       position: fixed;
@@ -1256,19 +1234,6 @@
         </tr>
       </table>
     </div>
-  </div>
-
-  <!-- Pause Settings (player-facing): graphics quality tier. No seed /
-       debug controls here (project policy). -->
-  <div id="pauseSettingsPanel" hidden>
-    <div class="pause-menu-title">GRAPHICS</div>
-    <div class="tier-row" role="group" aria-label="Graphics quality">
-      <button class="pause-menu-btn tier-btn" data-tier="high" type="button">HIGH</button>
-      <button class="pause-menu-btn tier-btn" data-tier="medium" type="button">MEDIUM</button>
-      <button class="pause-menu-btn tier-btn" data-tier="low" type="button">LOW</button>
-      <button class="pause-menu-btn tier-btn" data-tier="off" type="button">OFF</button>
-    </div>
-    <button id="pauseSettingsClose" class="pause-menu-btn" type="button">CLOSE</button>
   </div>
 
   <script type="module" src="/src/main.ts"></script>

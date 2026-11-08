@@ -744,34 +744,11 @@ pauseContinue.addEventListener("click", function () {
     setPlayerPaused(false);
 });
 
-// Player-facing Settings: graphics quality tier (persisted, applied live).
-const settingsPanel = document.getElementById("pauseSettingsPanel") as HTMLDivElement;
-const settingsClose = document.getElementById("pauseSettingsClose") as HTMLButtonElement;
+// Placeholders (later phase): settings menu, exit to main menu.
 pauseSettings.addEventListener("click", function () {
-    settingsPanel.hidden = false;
-    settingsClose.blur();
+    showControlsNoHide();
 });
-settingsClose.addEventListener("click", function () {
-    settingsPanel.hidden = true;
-    settingsClose.blur();
-});
-const tierButtons = Array.from(settingsPanel.querySelectorAll(".tier-btn")) as HTMLButtonElement[];
-function markTier(t: string) {
-    for (const b of tierButtons) b.classList.toggle("tier-active", b.dataset.tier === t);
-}
-try {
-    const storedTier = localStorage.getItem("postFXTier");
-    if (storedTier) markTier(storedTier);
-} catch { /* private mode */ }
-for (const b of tierButtons) {
-    b.addEventListener("click", function () {
-        if (activity.setPostFXTier) activity.setPostFXTier(b.dataset.tier ?? null);
-        markTier(b.dataset.tier ?? "");
-        b.blur();
-    });
-}
 
-// Exit is still a placeholder for now.
 pauseExit.addEventListener("click", function () {
     showControlsNoHide();
 });

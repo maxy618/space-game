@@ -34,7 +34,7 @@ import { LOG } from "../core/Debug";
 import { drawFlag } from "../core/Flag15";
 import { lerp } from "../core/MathHelpers";
 import { Namer15 } from "../core/Namer15";
-import { createPolygon, createStar, drawPolygon, parseSvgPathData } from "../core/PathTools";
+import { createPolygon, drawPolygon, parseSvgPathData } from "../core/PathTools";
 import { Constraint, Container, Simulator } from "../core/Physics";
 import { chooseRandom } from "../core/Randomness";
 import { Asteroid, CargoShip, Landing, Planet, Spacecraft, Spark, SparkStyle, Star, StarClass, StarClasses, Track, UniverseConst } from "../universe/Universe";
@@ -44,9 +44,6 @@ import { Landing15, Spacecraft15 } from "../universe/Universe15";
 import { Vec2, Vec2_angle, Vec2_copy, Vec2_makeWithAngleMag } from "../core/Vec2";
 import { clamp } from "../core/Maths";
 import { VisibleUniverse, ZoomedDrawScope } from "./VisibleUniverse";
-import { bakeStarSprite, bakePlanetSurface, bakePlanetClouds } from "./SpriteBaker";
-import { starPaletteFor, planetPaletteFor, sunDirection } from "./CelestialArt";
-import { lodFor } from "../camera/Lod";
 
 const solveSimulator = Simulator.prototype.solveAll;
 
@@ -54,230 +51,9 @@ const PI = Math.PI;
 const abs = Math.abs;
 const sqrt = Math.sqrt;
 
-/** Black-hole landmark (P07-T04 + R-006 fix): INSIDE the playable range
- *  (dist ~139 km < 200 km) so the encounter is actually reachable, with a
- *  radar marker + route node (MainActivity15). Sentinel stable id -777. */
-export const BLACK_HOLE = { x: 110000, y: -85000, r: 2600, id: -777 } as const;
-
 export class ZoomedDrawScope15 extends ZoomedDrawScope {
     readonly spaceshipLegs = parseSvgPathData("\nM-7   -6.5\nl-3.5  0\nl-1   -2\nl 0    4\nl 1   -2\nZ\nM-7    6.5\nl-3.5  0\nl-1   -2\nl 0    4\nl 1   -2\nZ\n")
     readonly thrustPath = createPolygon(-3, 3, -5, 0);
-
-    // P07/P08 baked sprites (seeded, deterministic, 1 blit per body per frame)
-    private starSprites = new Map<string, HTMLCanvasElement>();
-    private planetSprites = new Map<string, HTMLCanvasElement>();
-    private cloudSprites = new Map<string, HTMLCanvasElement>();
-    /** Star position for sun-direction lighting (set each frame). */
-    litStar = { x: 0, y: 0 };
-    private starSprite(cls: number): HTMLCanvasElement {
-        const key = "s" + cls;
-        let sp = this.starSprites.get(key);
-        if (!sp) { sp = bakeStarSprite(cls, (cls + 1) * 0.12345); this.starSprites.set(key, sp); }
-        return sp;
-    }
-    private planetSprite(planet: Planet): HTMLCanvasElement {
-        const key = "p" + planet.id;
-        let sp = this.planetSprites.get(key);
-        if (!sp) { sp = bakePlanetSurface(planet.visualSeed || (planet.id * 0.137) % 1); this.planetSprites.set(key, sp); }
-        return sp;
-    }
-    private cloudSprite(planet: Planet): HTMLCanvasElement {
-        const key = "c" + planet.id;
-        let sp = this.cloudSprites.get(key);
-        if (!sp) { sp = bakePlanetClouds(planet.visualSeed || (planet.id * 0.137) % 1); this.cloudSprites.set(key, sp); }
-        return sp;
-    }
-
-    /** P07-T01/P08: star with granulation sprite + additive corona (bloom source). */
-    drawStar(star: Star) {
-        const context = this.context;
-        const helper = this.helper;
-        if (!helper.width) return;
-        const dCssPx = star.radius * 2 * this.zoom;
-        const lod = lodFor(dCssPx);
-        const pal = starPaletteFor(star.cls);
-        // corona (additive, exponential-style falloff, 2 rings)
-        context.save();
-        context.globalCompositeOperation = "lighter";
-        const glow = (mult: number, alpha: number, col: string) => {
-            const g = context.createRadialGradient(star.pos.x, star.pos.y, star.radius * 0.55, star.pos.x, star.pos.y, star.radius * mult);
-            // exponential-style falloff (RESEARCH §2): bright at limb, fast
-            // decay — the old linear stops washed the whole screen near the star.
-            g.addColorStop(0, col + alpha + ")");
-            g.addColorStop(0.18, col + (alpha * 0.42) + ")");
-            g.addColorStop(0.38, col + (alpha * 0.13) + ")");
-            g.addColorStop(0.7, col + (alpha * 0.03) + ")");
-            g.addColorStop(1, col + "0)");
-            context.fillStyle = g;
-            context.beginPath();
-            context.arc(star.pos.x, star.pos.y, star.radius * mult, 0, PI * 2);
-            context.fill();
-        };
-        const tight = pal.coronaTight;
-        glow(1.9 - tight * 0.5, 0.95, pal.corona);
-        glow(3.4 - tight, 0.30, pal.corona);
-        glow(6.5 - tight * 2, 0.08, pal.corona);
-        context.restore();
-        // disc: macro = glow disc, fine/micro = baked sprite (sharp
-        // procedural base at extreme close-up, where the sprite would blur).
-        if (lod === "macro") {
-            helper.fillCircle(star.color, star.pos.x, star.pos.y, star.radius);
-            helper.drawCircle("rgba(255,255,255,0.85)", 2 / this.zoom, star.pos.x, star.pos.y, star.radius);
-        } else if (dCssPx > 1400) {
-            // micro: procedural radial base (resolution-independent) + blotches
-            const g = context.createRadialGradient(star.pos.x, star.pos.y, 0, star.pos.x, star.pos.y, star.radius);
-            g.addColorStop(0, pal.core);
-            g.addColorStop(0.55, pal.mid);
-            g.addColorStop(0.92, pal.rim);
-            g.addColorStop(1, pal.rim);
-            context.fillStyle = g;
-            context.beginPath(); context.arc(star.pos.x, star.pos.y, star.radius, 0, PI * 2); context.fill();
-            // granulation blotches + sunspots (seeded, screen-sharp)
-            context.save();
-            context.beginPath(); context.arc(star.pos.x, star.pos.y, star.radius, 0, PI * 2); context.clip();
-            const t = star.anim * 0.02;
-            context.globalAlpha = 0.16;
-            context.fillStyle = pal.core;
-            for (let i = 0; i < 26; i++) {
-                const a = (i * 2.39996 + t) % (PI * 2);
-                const dd = star.radius * (0.12 + (i % 7) * 0.11);
-                const rr = star.radius * (0.05 + (i % 5) * 0.022);
-                context.beginPath();
-                context.arc(star.pos.x + Math.cos(a) * dd, star.pos.y + Math.sin(a) * dd, rr, 0, PI * 2);
-                context.fill();
-            }
-            context.globalAlpha = 0.5;
-            context.fillStyle = "rgba(50,20,10,1)";
-            const nSpots = Math.round(pal.spotAmt * 9);
-            for (let i = 0; i < nSpots; i++) {
-                const a = (i * 1.7 + 0.4) % (PI * 2);
-                const dd = star.radius * (0.25 + (i % 4) * 0.16);
-                const rr = star.radius * (0.03 + (i % 3) * 0.018);
-                context.beginPath();
-                context.arc(star.pos.x + Math.cos(a) * dd, star.pos.y + Math.sin(a) * dd, rr, 0, PI * 2);
-                context.fill();
-            }
-            context.restore();
-        } else {
-            const sp = this.starSprite(star.cls);
-            const diam = star.radius * 2;
-            context.save();
-            context.translate(star.pos.x, star.pos.y);
-            context.rotate(star.anim * 0.01);
-            context.drawImage(sp, -star.radius, -star.radius, diam, diam);
-            context.restore();
-        }
-        // rotating flare spikes (fine+ only, subtle)
-        if (lod === "fine" || lod === "micro") {
-            context.save();
-            context.translate(star.pos.x, star.pos.y);
-            context.rotate(star.anim / 23 * PI * 2);
-            context.strokeStyle = pal.corona + "0.55)";
-            context.lineWidth = 2.2 / this.zoom;
-            context.lineJoin = "round";
-            context.stroke(createStar(star.radius + 60, star.radius + 200, 31));
-            context.rotate(star.anim / -19 * PI * 2);
-            context.stroke(createStar(star.radius + 20, star.radius + 150, 32));
-            context.restore();
-        }
-    }
-
-    /** P07-T02/P08: planet with baked surface, terminator, atmosphere rim, clouds, rings. */
-    drawPlanet(planet: Planet) {
-        const context = this.context;
-        const helper = this.helper;
-        const px = planet.pos.x;
-        const py = planet.pos.y;
-        const r = planet.radius;
-        // cull
-        if (!helper.width) return;
-        const left = helper.x, top = helper.y, right = left + helper.width, bottom = top + helper.height;
-        if (px + r * 3 < left || px - r * 3 > right || py + r * 3 < top || py - r * 3 > bottom) return;
-        const dCssPx = r * 2 * this.zoom;
-        const lod = lodFor(dCssPx);
-        const pal = planetPaletteFor(planet.visualSeed || (planet.id * 0.137) % 1);
-        const sun = sunDirection(px, py, this.litStar.x, this.litStar.y);
-        // ring back-half (behind the planet)
-        if (lod !== "macro" && pal.hasRings) {
-            context.save();
-            context.translate(px, py);
-            context.scale(1, 0.32);
-            context.strokeStyle = "rgba(220,200,170,0.5)";
-            context.lineWidth = r * 0.3;
-            context.setLineDash([r * 0.18, r * 0.07, r * 0.3, r * 0.1]);
-            context.beginPath(); context.arc(0, 0, r * 1.55, 0, PI); context.stroke();
-            context.restore();
-        }
-        // surface
-        if (lod === "macro") {
-            context.fillStyle = planet.color;
-            context.globalAlpha = 0.9;
-            context.beginPath(); context.arc(px, py, r, 0, PI * 2); context.fill();
-            context.globalAlpha = 1;
-            helper.drawCircle(planet.color, 1.5 / this.zoom, px, py, r);
-        } else {
-            const sp = this.planetSprite(planet);
-            context.save();
-            context.drawImage(sp, px - r, py - r, r * 2, r * 2);
-            context.restore();
-            // terminator: soft night side opposite the sun + sunset band
-            {
-                const nx = px - sun.x * r * 0.42;
-                const ny = py - sun.y * r * 0.42;
-                const g = context.createRadialGradient(nx, ny, r * 0.15, nx, ny, r * 1.05);
-                g.addColorStop(0, "rgba(4,4,14,0.82)");
-                g.addColorStop(0.55, "rgba(6,6,20,0.55)");
-                g.addColorStop(0.82, "rgba(20,14,30,0.18)");
-                g.addColorStop(1, "rgba(0,0,0,0)");
-                context.save();
-                context.beginPath(); context.arc(px, py, r, 0, PI * 2); context.clip();
-                context.fillStyle = g;
-                context.fillRect(px - r, py - r, r * 2, r * 2);
-                context.restore();
-            }
-            // clouds (slow rotation, fine+ only)
-            if (lod === "fine" || lod === "micro") {
-                const csp = this.cloudSprite(planet);
-                const t = performance.now() / 1000;
-                context.save();
-                context.beginPath(); context.arc(px, py, r, 0, PI * 2); context.clip();
-                context.translate(px, py);
-                context.rotate(Math.sin(t * 0.02 + planet.id) * 0.15);
-                context.globalAlpha = 0.8;
-                context.drawImage(csp, -r * 1.08, -r * 1.08, r * 2.16, r * 2.16);
-                context.restore();
-            }
-        }
-        // atmosphere rim (additive, day-side stronger) — P08 light cue
-        if (pal.hasAtmo || pal.hasOcean) {
-            const atmo = pal.atmo.startsWith("rgba") ? pal.atmo : pal.atmo;
-            context.save();
-            context.globalCompositeOperation = "lighter";
-            const rimW = r * 0.14;
-            const g = context.createRadialGradient(px, py, r * 0.98, px, py, r + rimW);
-            const base = atmo.startsWith("rgba") ? "rgba(180,180,220," : atmo.startsWith("#") ? null : "rgba(120,160,230,";
-            const c0 = base ? base + "0.55)" : pal.atmo;
-            const c1 = base ? base + "0)" : pal.atmo;
-            g.addColorStop(0, c0);
-            g.addColorStop(1, c1);
-            context.fillStyle = g;
-            context.beginPath(); context.arc(px, py, r + rimW, 0, PI * 2); context.fill();
-            context.restore();
-        }
-        // ring front-half
-        if (lod !== "macro" && pal.hasRings) {
-            context.save();
-            context.translate(px, py);
-            context.scale(1, 0.32);
-            context.strokeStyle = "rgba(235,215,185,0.75)";
-            context.lineWidth = r * 0.3;
-            context.setLineDash([r * 0.18, r * 0.07, r * 0.3, r * 0.1]);
-            context.beginPath(); context.arc(0, 0, r * 1.55, 0, PI); context.stroke();
-            context.restore();
-        }
-        // orbit line (kept, subtle)
-        helper.drawCircle("rgba(0,255,255,0.28)", 1 / this.zoom, planet.orbitCenter.x, planet.orbitCenter.y, planet.pos.distance(planet.orbitCenter));
-    }
 
     // Deterministic nebula macroform (P07-T03): seeded once at construction.
     // Three overlapping rotated blobs near the system core, drawn at low
@@ -333,169 +109,6 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         }
         return blobs;
     })();
-
-    /** Strongest nebula tint at a world point (P08 nebula profile driver):
-     *  returns 0..1 amount + rgb tint (0..1). Pure — used by PostFX. */
-    nebulaAt(x: number, y: number): { amount: number; r: number; g: number; b: number } {
-        let best = 0;
-        let br = 0, bg = 0, bb = 0;
-        for (const blob of this.nebulaBlobs) {
-            const d = Math.hypot(x - blob.x, y - blob.y);
-            const t = d / blob.r;
-            if (t >= 1.3) continue;
-            const a = ((1.3 - t) / 1.3) * blob.alpha * 2.6;
-            if (a > best) {
-                best = a;
-                const n = parseInt(blob.color.slice(1), 16);
-                br = ((n >> 16) & 255) / 255;
-                bg = ((n >> 8) & 255) / 255;
-                bb = (n & 255) / 255;
-            }
-        }
-        return { amount: Math.min(1, best), r: br, g: bg, b: bb };
-    }
-
-    /** Deterministic comets (P07-T03): two elliptical orbits around the
-     *  star, coma + anti-sun tail. Fictional gameplay content, drawn from
-     *  the clock only (no sim state) — bounded, culled off-screen. */
-    private readonly comets = [
-        { ax: 95000, ay: 62000, period: 260, phase: 0.7, len: 14000 },
-        { ax: 142000, ay: 88000, period: 390, phase: 2.4, len: 20000 },
-    ];
-    drawComets(sx: number, sy: number) {
-        const context = this.context;
-        const helper = this.helper;
-        if (!helper.width) return;
-        const t = performance.now() / 1000;
-        for (const c of this.comets) {
-            const ang = c.phase + (t / c.period) * PI * 2;
-            const cx = sx + Math.cos(ang) * c.ax;
-            const cy = sy + Math.sin(ang) * c.ay;
-            if (cx + c.len * 2 < helper.x || cx - c.len * 2 > helper.x + helper.width
-                || cy + c.len * 2 < helper.y || cy - c.len * 2 > helper.y + helper.height) continue;
-            // velocity direction (tangent) + anti-sun tail blend
-            const vx = -Math.sin(ang) * c.ax;
-            const vy = Math.cos(ang) * c.ay;
-            const vm = Math.hypot(vx, vy) || 1;
-            const tx = -cx + sx, ty = -cy + sy; // toward star
-            const tm = Math.hypot(tx, ty) || 1;
-            // tail = average of trailing-orbit and anti-sun (curved look)
-            const dx = (-vx / vm * 0.55 + tx / tm * 0.45);
-            const dy = (-vy / vm * 0.55 + ty / tm * 0.45);
-            const dm = Math.hypot(dx, dy) || 1;
-            const ux = dx / dm, uy = dy / dm;
-            const tailLen = c.len * (0.7 + 0.3 * Math.sin(t * 0.5 + c.phase));
-            context.save();
-            context.globalCompositeOperation = "lighter";
-            // tail (gradient triangle)
-            const ex = cx + ux * tailLen, ey = cy + uy * tailLen;
-            const tg = context.createLinearGradient(cx, cy, ex, ey);
-            tg.addColorStop(0, "rgba(200,230,255,0.5)");
-            tg.addColorStop(1, "rgba(200,230,255,0)");
-            context.fillStyle = tg;
-            const w = 900;
-            const px = -uy, py = ux;
-            context.beginPath();
-            context.moveTo(cx, cy);
-            context.lineTo(ex + px * w, ey + py * w);
-            context.lineTo(ex - px * w, ey - py * w);
-            context.closePath();
-            context.fill();
-            // coma (soft ball)
-            const cg = context.createRadialGradient(cx, cy, 0, cx, cy, 650);
-            cg.addColorStop(0, "rgba(255,255,255,0.9)");
-            cg.addColorStop(0.4, "rgba(190,220,255,0.35)");
-            cg.addColorStop(1, "rgba(190,220,255,0)");
-            context.fillStyle = cg;
-            context.beginPath();
-            context.arc(cx, cy, 650, 0, PI * 2);
-            context.fill();
-            context.restore();
-        }
-    }
-
-    /**
-     * Moons (P07-T02): deterministic visual-only moons around planets.
-     * Count/orbit/phase derive from the planet's stable visualSeed; the
-     * angle advances with sim time (frozen when paused). Grey cratered
-     * discs with day/night terminator — distinct from ringed planets.
-     */
-    static moonCount(seed: number): number {
-        const s = ((seed % 1) + 1) % 1;
-        if (s < 0.35) return 0;
-        if (s < 0.62) return 1;
-        if (s < 0.85) return 2;
-        return 1;
-    }
-    moonOffset(seed: number, idx: number, now: number, planetR: number): { x: number; y: number; mr: number } {
-        const orbitR = planetR * (2.6 + idx * 1.3);
-        const speed = 0.06 / (1 + idx * 0.6);
-        const phase = seed * 6.283 + idx * 2.4;
-        const ang = phase + now * speed;
-        return {
-            x: Math.cos(ang) * orbitR,
-            y: Math.sin(ang) * orbitR * 0.9,
-            mr: planetR * (0.16 + ((seed * (idx + 3)) % 0.1)),
-        };
-    }
-    drawMoons(planets: Planet[], now: number) {
-        const context = this.context;
-        const helper = this.helper;
-        if (!helper.width) return;
-        const sun = sunDirection(0, 0, this.litStar.x, this.litStar.y); // unused, keeps docs honest
-        void sun;
-        for (const planet of planets) {
-            const seed = planet.visualSeed || ((planet.id * 0.137) % 1);
-            const count = ZoomedDrawScope15.moonCount(seed);
-            for (let i = 0; i < count; i++) {
-                const off = this.moonOffset(seed, i, now, planet.radius);
-                const mx = planet.pos.x + off.x;
-                const my = planet.pos.y + off.y;
-                const mr = off.mr;
-                if (mx + mr * 3 < helper.x || mx - mr * 3 > helper.x + helper.width
-                    || my + mr * 3 < helper.y || my - mr * 3 > helper.y + helper.height) continue;
-                const dCss = mr * 2 * this.zoom;
-                const sunDir = sunDirection(mx, my, this.litStar.x, this.litStar.y);
-                // day/night terminator: night center opposite the sun
-                const nx = mx - sunDir.x * mr * 0.35;
-                const ny = my - sunDir.y * mr * 0.35;
-                if (dCss < 6) {
-                    context.fillStyle = "#B8B8C8";
-                    context.beginPath(); context.arc(mx, my, Math.max(mr, 2 / this.zoom), 0, PI * 2); context.fill();
-                    continue;
-                }
-                const g = context.createRadialGradient(
-                    mx + sunDir.x * mr * 0.3, my + sunDir.y * mr * 0.3, 0,
-                    mx, my, mr,
-                );
-                g.addColorStop(0, "#E8E8F0");
-                g.addColorStop(0.7, "#A8A8B8");
-                g.addColorStop(1, "#6A6A7A");
-                context.fillStyle = g;
-                context.beginPath(); context.arc(mx, my, mr, 0, PI * 2); context.fill();
-                // night side
-                const ng = context.createRadialGradient(nx, ny, 0, nx, ny, mr);
-                ng.addColorStop(0, "rgba(4,4,14,0.75)");
-                ng.addColorStop(1, "rgba(4,4,14,0)");
-                context.save();
-                context.beginPath(); context.arc(mx, my, mr, 0, PI * 2); context.clip();
-                context.fillStyle = ng;
-                context.fillRect(mx - mr, my - mr, mr * 2, mr * 2);
-                // craters (seeded, clipped to disc)
-                context.fillStyle = "rgba(60,60,75,0.5)";
-                for (let c = 0; c < 3; c++) {
-                    const ca = seed * 6.283 + c * 2.4 + i * 1.7;
-                    const cd = mr * 0.45 * ((seed + c * 0.31) % 1);
-                    const cr = mr * (0.1 + (c % 2) * 0.06);
-                    context.beginPath();
-                    context.arc(mx + Math.cos(ca) * cd, my + Math.sin(ca) * cd, cr, 0, PI * 2);
-                    context.fill();
-                }
-                context.restore();
-                helper.drawCircle("rgba(220,220,240,0.5)", 1.2 / this.zoom, mx, my, mr);
-            }
-        }
-    }
 
     /**
      * Scanner reveal wave (user 2026-11-09 v2): PRETTIER sweep — bright
@@ -661,10 +274,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         // the signature encounter is rendered as a fixed distant landmark at
         // the far side of the playable space so players can fly up to it and
         // inspect the event-horizon silhouette + accretion disc + lensing cue.
-        this.drawComets(universe.star.pos.x, universe.star.pos.y);
-        this.drawBlackHoleMark(BLACK_HOLE.x, BLACK_HOLE.y, BLACK_HOLE.r);
-        this.litStar.x = universe.star.pos.x;
-        this.litStar.y = universe.star.pos.y;
+        this.drawBlackHoleMark(180000, -140000, 2600);
         universe.constraints.forEach(it => {
             if (it instanceof Landing) {
                 this.drawLanding(it);
@@ -698,7 +308,6 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         });
         // runtime object is always VisibleUniverse15 (drawUniverse is
         // overridden there); the scope API keeps the base type
-        this.drawMoons(universe.planets, universe.now);
         this.drawImpactThreat(universe as VisibleUniverse15);
         this.drawRouteLine(universe as VisibleUniverse15);
         this.drawScanWave(universe as VisibleUniverse15);
@@ -958,76 +567,35 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         const right = left + helper.width;
         const bottom = top + helper.height;
         if (bx + br * 3 < left || bx - br * 3 > right || by + br * 3 < top || by - br * 3 > bottom) return;
-        const t = performance.now() / 1000;
-        // lensing glow (soft halo, additive for bloom)
+        // lensing glow (soft halo)
+        context.fillStyle = "rgba(255,180,90,0.10)";
+        context.beginPath();
+        context.arc(bx, by, br * 1.55, 0, PI * 2);
+        context.fill();
+        context.fillStyle = "rgba(255,150,60,0.10)";
+        context.beginPath();
+        context.arc(bx, by, br * 1.28, 0, PI * 2);
+        context.fill();
+        // accretion disc (squashed ring crossing in front)
         context.save();
-        context.globalCompositeOperation = "lighter";
-        const halo = (mult: number, a: number) => {
-            const g = context.createRadialGradient(bx, by, br * 0.8, bx, by, br * mult);
-            g.addColorStop(0, "rgba(255,180,90," + a + ")");
-            g.addColorStop(1, "rgba(255,150,60,0)");
-            context.fillStyle = g;
-            context.beginPath(); context.arc(bx, by, br * mult, 0, PI * 2); context.fill();
-        };
-        halo(2.6, 0.28);
-        halo(1.7, 0.32);
-        // accretion disc: textured ellipse, Doppler ramp (approaching side
-        // brighter/bluer), differential rotation via moving dash offset.
         context.translate(bx, by);
         context.scale(1, 0.34);
-        const discBand = (rr: number, w: number, col: string) => {
-            context.strokeStyle = col;
-            context.lineWidth = w / this.zoom;
-            context.beginPath(); context.arc(0, 0, rr, 0, PI * 2); context.stroke();
-        };
-        const rot = t * 0.12;
-        // outer cool band
-        discBand(br * 2.4, br * 0.5, "rgba(180,90,40,0.35)");
-        // mid hot band
-        discBand(br * 1.75, br * 0.42, "rgba(255,190,110,0.65)");
-        // inner white-hot band (Doppler: left side brighter)
-        context.save();
-        context.rotate(rot * 0.2);
-        context.setLineDash([br * 0.35, br * 0.18]);
-        discBand(br * 1.35, br * 0.26, "rgba(255,240,210,0.9)");
+        context.strokeStyle = "rgba(255,190,110,0.85)";
+        context.lineWidth = 90 / this.zoom;
+        context.beginPath();
+        context.arc(0, 0, br * 1.35, 0, PI * 2);
+        context.stroke();
         context.restore();
-        context.setLineDash([]);
-        // doppler boost gradient on the front arc
-        const dg = context.createLinearGradient(-br * 2.4, 0, br * 2.4, 0);
-        dg.addColorStop(0, "rgba(170,210,255,0.28)");
-        dg.addColorStop(0.5, "rgba(255,220,170,0.05)");
-        dg.addColorStop(1, "rgba(255,140,70,0.18)");
-        context.strokeStyle = dg;
-        context.lineWidth = br * 0.32;
-        context.beginPath(); context.arc(0, 0, br * 1.5, 0, PI * 2); context.stroke();
-        context.restore();
-        // jets along the rotation axis (faint, additive)
-        context.save();
-        context.globalCompositeOperation = "lighter";
-        const jet = (dirY: number) => {
-            const g = context.createLinearGradient(bx, by, bx, by + dirY * br * 5);
-            g.addColorStop(0, "rgba(170,200,255,0.30)");
-            g.addColorStop(1, "rgba(170,200,255,0)");
-            context.fillStyle = g;
-            context.beginPath();
-            context.moveTo(bx - br * 0.12, by);
-            context.lineTo(bx + br * 0.12, by);
-            context.lineTo(bx + br * 0.5, by + dirY * br * 5);
-            context.lineTo(bx - br * 0.5, by + dirY * br * 5);
-            context.closePath(); context.fill();
-        };
-        jet(-1); jet(1);
-        context.restore();
-        // event-horizon shadow (pure black, on top of disc centre)
+        // event-horizon shadow
         context.fillStyle = "#000000";
         context.beginPath();
         context.arc(bx, by, br, 0, PI * 2);
         context.fill();
-        // photon rim (thin bright ring at ~1.6 r_s visual)
-        context.strokeStyle = "rgba(255,244,224,0.95)";
-        context.lineWidth = Math.max(1.2 / this.zoom, br * 0.02);
+        // photon rim
+        context.strokeStyle = "rgba(255,240,220,0.9)";
+        context.lineWidth = 3 / this.zoom;
         context.beginPath();
-        context.arc(bx, by, br * 1.06, 0, PI * 2);
+        context.arc(bx, by, br, 0, PI * 2);
         context.stroke();
     }
     drawSpacecraft(ship: Spacecraft) {
@@ -1223,64 +791,25 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         helper.y = oldHelperY;
         this.drawTrack(ship.track);
     }
-    /** Authored surface art (P06 exit): a landing zone — outer + inner
-     *  touchdown rings, a filled mission flag with swallowtail banner, and
-     *  ground contour ticks. Macro LOD collapses to a beacon dot. */
     drawLanding(landing: Landing) {
-        const context = this.context;
-        const v = Vec2_makeWithAngleMag(Vec2.Zero(), landing.angle, landing.planet.radius).addSelf(landing.planet.pos);
-        const dCss = 160 * this.zoom;
-        context.save();
-        context.translate(v.x, v.y);
-        context.rotate(landing.angle);
-        if (dCss < 6) {
-            // macro: beacon dot
-            context.fillStyle = "#E8F2FF";
-            context.beginPath(); context.arc(0, 0, Math.max(120, 3 / this.zoom), 0, PI * 2); context.fill();
-            context.restore();
-            return;
-        }
-        const padR = 70;
-        // touchdown rings (planet-side terrain markings)
-        context.strokeStyle = "rgba(232,242,255,0.7)";
-        context.lineWidth = 2 / this.zoom;
-        context.beginPath(); context.arc(0, 0, padR * 1.6, 0, PI * 2); context.stroke();
-        context.strokeStyle = "rgba(232,242,255,0.45)";
-        context.beginPath(); context.arc(0, 0, padR * 1.05, 0, PI * 2); context.stroke();
-        context.setLineDash([10 / this.zoom, 8 / this.zoom]);
-        context.beginPath(); context.arc(0, 0, padR * 0.62, 0, PI * 2); context.stroke();
-        context.setLineDash([]);
-        // ground contour ticks (surface → fine detail grows with zoom)
-        if (dCss > 24) {
-            context.strokeStyle = "rgba(167,167,202,0.5)";
-            context.lineWidth = 1.4 / this.zoom;
-            for (let i = 0; i < 6; i++) {
-                const a = (i / 6) * PI * 2;
-                context.beginPath();
-                context.moveTo(Math.cos(a) * padR * 1.62, Math.sin(a) * padR * 1.62);
-                context.lineTo(Math.cos(a) * padR * 1.78, Math.sin(a) * padR * 1.78);
-                context.stroke();
-            }
-        }
-        // mission flag (filled swallowtail banner) — the swappable flag
         if (drawFlag) {
-            const h = 34;
-            context.strokeStyle = "#E8F2FF";
-            context.lineWidth = 1.6 / this.zoom;
-            context.beginPath(); context.moveTo(0, 0); context.lineTo(h, 0); context.stroke();
-            context.fillStyle = Colors.Flag;
+            const context = this.context;
+            const v = Vec2_makeWithAngleMag(Vec2.Zero(), landing.angle, landing.planet.radius).addSelf(landing.planet.pos);
+            const strokeWidth = 2 / this.zoom;
+            const height = 80;
+            context.save();
+            context.translate(v.x, v.y);
+            context.rotate(landing.angle);
+            context.strokeStyle = Colors.Flag;
+            context.lineWidth = strokeWidth;
             context.beginPath();
-            context.moveTo(h, 0);
-            context.lineTo(h * 0.66, h * 0.22);
-            context.lineTo(h * 0.78, 0);
-            context.lineTo(h * 0.66, -h * 0.22);
-            context.closePath();
-            context.fill();
-            context.strokeStyle = "rgba(10,10,16,0.8)";
-            context.lineWidth = 1 / this.zoom;
+            context.moveTo(0, 0);
+            context.lineTo(height, 0);
+            context.lineTo(height * 0.875, height * 0.25);
+            context.lineTo(height * 0.75, 0);
             context.stroke();
+            context.restore();
         }
-        context.restore();
     }
     drawAutopilot(autopilot: Autopilot15) {
         if (autopilot.target !== null) {
@@ -1439,7 +968,6 @@ export class VisibleUniverse15 extends VisibleUniverse {
                 "Landroid",
                 "created planet", p, "with period", period, "and vel", speed
             );
-            p.id = it + 1; // stable id 1..N (P03-T02 contract — was missing here, broke sprite cache + routing)
             p.description = this.namer.describePlanet(this.rngForInit);
             p.atmosphere = this.namer.describeAtmo(this.rngForInit);
             p.flora = this.namer.describeLife(this.rngForInit);
@@ -1456,32 +984,12 @@ export class VisibleUniverse15 extends VisibleUniverse {
 
         this.ship = new Spacecraft15();
 
-        // R-006 fix: spawn BESIDE the innermost planet (not in random void)
-        // so the first screen shows a planet + star glow. The ship carries
-        // the planet's orbital velocity so it drifts with it instead of
-        // slingshot-ing away.
-        const home = this.planets[0];
-        if (home) {
-            const oa = Math.atan2(home.pos.y - this.star.pos.y, home.pos.x - this.star.pos.x);
-            // Spawn IN the planet's orbit (same radius), ahead of it along
-            // the track: star gravity then treats it like the planet itself
-            // (stable drift), whereas a radially-outside spawn has the
-            // wrong circular speed and falls into the star/planet.
-            const orbitR = home.pos.distance(this.star.pos);
-            const lead = 6000; // metres ahead of the planet on the track
-            const ang = oa + lead / orbitR;
-            Vec2_makeWithAngleMag(this.ship.pos, ang, orbitR).addSelf(this.star.pos);
-            this.ship.angle = ang + PI / 2; // nose along the track (toward planet)
-            Vec2_makeWithAngleMag(this.ship.velocity, ang + PI / 2, home.speed);
-            Vec2_copy(this.ship.opos, this.ship.pos);
-        } else {
-            Vec2_makeWithAngleMag(
-                this.ship.pos,
-                this.rngForInit.float() * PI * 2,
-                this.rngForInit.minmax(UniverseConst.PLANET_ORBIT_RANGE_MIN, UniverseConst.PLANET_ORBIT_RANGE_MAX)
-            ).addSelf(this.star.pos);
-            this.ship.angle = this.rngForInit.float() * PI * 2;
-        }
+        Vec2_makeWithAngleMag(
+            this.ship.pos,
+            this.rngForInit.float() * PI * 2,
+            this.rngForInit.minmax(UniverseConst.PLANET_ORBIT_RANGE_MIN, UniverseConst.PLANET_ORBIT_RANGE_MAX)
+        ).addSelf(this.star.pos);
+        this.ship.angle = this.rngForInit.float() * PI * 2;
         this.addEntity(this.ship);
 
         this.ringfence.add(this.ship);
