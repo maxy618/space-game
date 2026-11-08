@@ -1223,25 +1223,64 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         helper.y = oldHelperY;
         this.drawTrack(ship.track);
     }
+    /** Authored surface art (P06 exit): a landing zone — outer + inner
+     *  touchdown rings, a filled mission flag with swallowtail banner, and
+     *  ground contour ticks. Macro LOD collapses to a beacon dot. */
     drawLanding(landing: Landing) {
-        if (drawFlag) {
-            const context = this.context;
-            const v = Vec2_makeWithAngleMag(Vec2.Zero(), landing.angle, landing.planet.radius).addSelf(landing.planet.pos);
-            const strokeWidth = 2 / this.zoom;
-            const height = 80;
-            context.save();
-            context.translate(v.x, v.y);
-            context.rotate(landing.angle);
-            context.strokeStyle = Colors.Flag;
-            context.lineWidth = strokeWidth;
-            context.beginPath();
-            context.moveTo(0, 0);
-            context.lineTo(height, 0);
-            context.lineTo(height * 0.875, height * 0.25);
-            context.lineTo(height * 0.75, 0);
-            context.stroke();
+        const context = this.context;
+        const v = Vec2_makeWithAngleMag(Vec2.Zero(), landing.angle, landing.planet.radius).addSelf(landing.planet.pos);
+        const dCss = 160 * this.zoom;
+        context.save();
+        context.translate(v.x, v.y);
+        context.rotate(landing.angle);
+        if (dCss < 6) {
+            // macro: beacon dot
+            context.fillStyle = "#E8F2FF";
+            context.beginPath(); context.arc(0, 0, Math.max(120, 3 / this.zoom), 0, PI * 2); context.fill();
             context.restore();
+            return;
         }
+        const padR = 70;
+        // touchdown rings (planet-side terrain markings)
+        context.strokeStyle = "rgba(232,242,255,0.7)";
+        context.lineWidth = 2 / this.zoom;
+        context.beginPath(); context.arc(0, 0, padR * 1.6, 0, PI * 2); context.stroke();
+        context.strokeStyle = "rgba(232,242,255,0.45)";
+        context.beginPath(); context.arc(0, 0, padR * 1.05, 0, PI * 2); context.stroke();
+        context.setLineDash([10 / this.zoom, 8 / this.zoom]);
+        context.beginPath(); context.arc(0, 0, padR * 0.62, 0, PI * 2); context.stroke();
+        context.setLineDash([]);
+        // ground contour ticks (surface → fine detail grows with zoom)
+        if (dCss > 24) {
+            context.strokeStyle = "rgba(167,167,202,0.5)";
+            context.lineWidth = 1.4 / this.zoom;
+            for (let i = 0; i < 6; i++) {
+                const a = (i / 6) * PI * 2;
+                context.beginPath();
+                context.moveTo(Math.cos(a) * padR * 1.62, Math.sin(a) * padR * 1.62);
+                context.lineTo(Math.cos(a) * padR * 1.78, Math.sin(a) * padR * 1.78);
+                context.stroke();
+            }
+        }
+        // mission flag (filled swallowtail banner) — the swappable flag
+        if (drawFlag) {
+            const h = 34;
+            context.strokeStyle = "#E8F2FF";
+            context.lineWidth = 1.6 / this.zoom;
+            context.beginPath(); context.moveTo(0, 0); context.lineTo(h, 0); context.stroke();
+            context.fillStyle = Colors.Flag;
+            context.beginPath();
+            context.moveTo(h, 0);
+            context.lineTo(h * 0.66, h * 0.22);
+            context.lineTo(h * 0.78, 0);
+            context.lineTo(h * 0.66, -h * 0.22);
+            context.closePath();
+            context.fill();
+            context.strokeStyle = "rgba(10,10,16,0.8)";
+            context.lineWidth = 1 / this.zoom;
+            context.stroke();
+        }
+        context.restore();
     }
     drawAutopilot(autopilot: Autopilot15) {
         if (autopilot.target !== null) {
