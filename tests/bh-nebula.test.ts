@@ -24,6 +24,19 @@ describe("Black hole landmark (R-006)", () => {
     });
 });
 
+describe("Moons (P07-T02)", () => {
+    it("moonCount is deterministic 0..2 and moon offsets are bounded", () => {
+        expect(ZoomedDrawScope15.moonCount(0.2)).toBe(0);
+        expect(ZoomedDrawScope15.moonCount(0.5)).toBe(1);
+        expect(ZoomedDrawScope15.moonCount(0.75)).toBe(2);
+        const scope = new ZoomedDrawScope15();
+        const o = scope.moonOffset(0.5, 0, 10, 1000);
+        expect(o).toEqual(scope.moonOffset(0.5, 0, 10, 1000));
+        expect(Math.hypot(o.x, o.y)).toBeGreaterThan(1000); // outside the planet
+        expect(o.mr).toBeGreaterThan(0);
+    });
+});
+
 describe("Nebula profile driver (P08-T04)", () => {
     it("nebulaAt is deterministic, bounded, zero far away", () => {
         const scope = new ZoomedDrawScope15();

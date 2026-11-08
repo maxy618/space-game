@@ -415,6 +415,89 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
     }
 
     /**
+     * Moons (P07-T02): deterministic visual-only moons around planets.
+     * Count/orbit/phase derive from the planet's stable visualSeed; the
+     * angle advances with sim time (frozen when paused). Grey cratered
+     * discs with day/night terminator — distinct from ringed planets.
+     */
+    static moonCount(seed: number): number {
+        const s = ((seed % 1) + 1) % 1;
+        if (s < 0.35) return 0;
+        if (s < 0.62) return 1;
+        if (s < 0.85) return 2;
+        return 1;
+    }
+    moonOffset(seed: number, idx: number, now: number, planetR: number): { x: number; y: number; mr: number } {
+        const orbitR = planetR * (2.6 + idx * 1.3);
+        const speed = 0.06 / (1 + idx * 0.6);
+        const phase = seed * 6.283 + idx * 2.4;
+        const ang = phase + now * speed;
+        return {
+            x: Math.cos(ang) * orbitR,
+            y: Math.sin(ang) * orbitR * 0.9,
+            mr: planetR * (0.16 + ((seed * (idx + 3)) % 0.1)),
+        };
+    }
+    drawMoons(planets: Planet[], now: number) {
+        const context = this.context;
+        const helper = this.helper;
+        if (!helper.width) return;
+        const sun = sunDirection(0, 0, this.litStar.x, this.litStar.y); // unused, keeps docs honest
+        void sun;
+        for (const planet of planets) {
+            const seed = planet.visualSeed || ((planet.id * 0.137) % 1);
+            const count = ZoomedDrawScope15.moonCount(seed);
+            for (let i = 0; i < count; i++) {
+                const off = this.moonOffset(seed, i, now, planet.radius);
+                const mx = planet.pos.x + off.x;
+                const my = planet.pos.y + off.y;
+                const mr = off.mr;
+                if (mx + mr * 3 < helper.x || mx - mr * 3 > helper.x + helper.width
+                    || my + mr * 3 < helper.y || my - mr * 3 > helper.y + helper.height) continue;
+                const dCss = mr * 2 * this.zoom;
+                const sunDir = sunDirection(mx, my, this.litStar.x, this.litStar.y);
+                // day/night terminator: night center opposite the sun
+                const nx = mx - sunDir.x * mr * 0.35;
+                const ny = my - sunDir.y * mr * 0.35;
+                if (dCss < 6) {
+                    context.fillStyle = "#B8B8C8";
+                    context.beginPath(); context.arc(mx, my, Math.max(mr, 2 / this.zoom), 0, PI * 2); context.fill();
+                    continue;
+                }
+                const g = context.createRadialGradient(
+                    mx + sunDir.x * mr * 0.3, my + sunDir.y * mr * 0.3, 0,
+                    mx, my, mr,
+                );
+                g.addColorStop(0, "#E8E8F0");
+                g.addColorStop(0.7, "#A8A8B8");
+                g.addColorStop(1, "#6A6A7A");
+                context.fillStyle = g;
+                context.beginPath(); context.arc(mx, my, mr, 0, PI * 2); context.fill();
+                // night side
+                const ng = context.createRadialGradient(nx, ny, 0, nx, ny, mr);
+                ng.addColorStop(0, "rgba(4,4,14,0.75)");
+                ng.addColorStop(1, "rgba(4,4,14,0)");
+                context.save();
+                context.beginPath(); context.arc(mx, my, mr, 0, PI * 2); context.clip();
+                context.fillStyle = ng;
+                context.fillRect(mx - mr, my - mr, mr * 2, mr * 2);
+                // craters (seeded, clipped to disc)
+                context.fillStyle = "rgba(60,60,75,0.5)";
+                for (let c = 0; c < 3; c++) {
+                    const ca = seed * 6.283 + c * 2.4 + i * 1.7;
+                    const cd = mr * 0.45 * ((seed + c * 0.31) % 1);
+                    const cr = mr * (0.1 + (c % 2) * 0.06);
+                    context.beginPath();
+                    context.arc(mx + Math.cos(ca) * cd, my + Math.sin(ca) * cd, cr, 0, PI * 2);
+                    context.fill();
+                }
+                context.restore();
+                helper.drawCircle("rgba(220,220,240,0.5)", 1.2 / this.zoom, mx, my, mr);
+            }
+        }
+    }
+
+    /**
      * Scanner reveal wave (user 2026-11-09 v2): PRETTIER sweep — bright
      * thin leading edge + soft trailing halo + a slower inner echo ring —
      * expanding to the FULL scan radius (the camera pulls out with it).
@@ -615,6 +698,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         });
         // runtime object is always VisibleUniverse15 (drawUniverse is
         // overridden there); the scope API keeps the base type
+        this.drawMoons(universe.planets, universe.now);
         this.drawImpactThreat(universe as VisibleUniverse15);
         this.drawRouteLine(universe as VisibleUniverse15);
         this.drawScanWave(universe as VisibleUniverse15);

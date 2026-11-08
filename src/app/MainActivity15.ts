@@ -109,6 +109,15 @@ const SCAN_SPEED_MAX = 500;
 /** Hard cap of the scan camera pull (× the normal zoom-out). */
 const SCAN_PULL_MAX = 8;
 let radarOpen = false; // radar overlay state (mirrored in main.ts via setRadarOpen)
+let requestedPostFXTier: string | null = null; // pause Settings → Spaaaace
+/** Player-facing graphics tier from the pause menu (persisted). */
+export function setRequestedPostFXTier(t: string | null) {
+    requestedPostFXTier = t;
+    try {
+        if (t) localStorage.setItem("postFXTier", t);
+        else localStorage.removeItem("postFXTier");
+    } catch { /* private mode */ }
+}
 
 const atan2 = Math.atan2;
 const PI = Math.PI;
@@ -283,6 +292,7 @@ function Spaaaace(
             postfx.tier = dpr > 2.4 ? "medium" : "high";
             const tierParam = typeof location === "undefined" ? null : new URLSearchParams(location.hash.substring(1)).get("tier");
             if (tierParam === "low" || tierParam === "medium" || tierParam === "high" || tierParam === "off") postfx.tier = tierParam;
+            if (requestedPostFXTier) postfx.tier = requestedPostFXTier as typeof postfx.tier;
             return postfx.ready;
         } catch {
             return false;
@@ -866,6 +876,7 @@ function Spaaaace(
             if (postCanvas.width !== canvasWidth) postCanvas.width = canvasWidth;
             if (postCanvas.height !== canvasHeight) postCanvas.height = canvasHeight;
             postfx.resize();
+            if (requestedPostFXTier) postfx.tier = requestedPostFXTier as typeof postfx.tier;
             const toUV = (wx: number, wy: number): [number, number] => [
                 (wx - helper.x) / helper.width,
                 (wy - helper.y) / helper.height,
@@ -2701,6 +2712,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 x: p.pos.x,
                 y: p.pos.y,
                 radius: p.radius,
+                visualSeed: p.visualSeed,
             })),
             star: { x: universe.star.pos.x, y: universe.star.pos.y, radius: universe.star.radius },
             bh: { x: BLACK_HOLE.x, y: BLACK_HOLE.y, r: BLACK_HOLE.r },
@@ -2828,5 +2840,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             }
             return best === null ? null : best.id;
         },
+        /** Pause-menu graphics tier (persisted, applied live by Spaaaace). */
+        setPostFXTier: (t: string | null) => setRequestedPostFXTier(t),
     };
 }
