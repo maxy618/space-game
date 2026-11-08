@@ -366,33 +366,20 @@ export class ZoomedDrawScope {
     drawTrack(track: Track) {
         const context = this.context;
         if (SIMPLE_TRACK_DRAWING) {
-            // Grey SMOOTH trail (user 2026-11-09): per-segment age-faded line
-            // (no dash steps — the old dash pattern popped in discontinuously).
-            // Points expire by age — the tail vanishes far behind the camera
-            // while flying.
+            // Grey DASHED trail (user 2026-11-09): back to the dashed look —
+            // thin, transparent, smooth capture every step, vanishing by age.
             const total = track.size();
             if (total < 2) return;
-            context.lineCap = "round";
-            let prevX = 0, prevY = 0, prevAge = 0;
+            context.strokeStyle = "rgba(168, 168, 180, 0.2)";
+            context.lineWidth = 2.2 / this.zoom;
+            context.setLineDash([7 / this.zoom, 6 / this.zoom]);
+            context.beginPath();
             let first = true;
-            track.forEachPoint((x, y, age) => {
-                if (first) {
-                    prevX = x; prevY = y; prevAge = age;
-                    first = false;
-                    return;
-                }
-                const fade = clamp(1 - age / UniverseConst.TRACK_LIFETIME, 0, 1);
-                if (fade > 0.01) {
-                    context.strokeStyle = "rgba(168, 168, 180," + (0.05 + 0.3 * fade) + ")";
-                    context.lineWidth = (1.6 + 1.8 * fade) / this.zoom;
-                    context.beginPath();
-                    context.moveTo(prevX, prevY);
-                    context.lineTo(x, y);
-                    context.stroke();
-                }
-                prevX = x; prevY = y; prevAge = age;
+            track.forEachPoint((x, y) => {
+                if (first) { context.moveTo(x, y); first = false; }
+                else context.lineTo(x, y);
             });
-            context.lineCap = "butt";
+            context.stroke();
             context.setLineDash([]);
         } else {
             if (track.positions.size() < 2) return;

@@ -111,7 +111,7 @@
     #safeButton {
       position: fixed;
       right: calc(14px + var(--safe-right));
-      bottom: calc(196px + var(--safe-bottom));
+      bottom: calc(258px + var(--safe-bottom)); /* clearly ABOVE the radar button */
       width: 56px;
       height: 56px;
       padding: 0;
@@ -497,12 +497,13 @@
       left: 50%;
       top: calc(150px + var(--safe-top));
       transform: translateX(-50%) translateY(-4px);
-      max-width: min(78vw, 340px);
-      padding: 7px 14px;
+      max-width: max-content;
+      padding: 7px 16px;
       font-family: "Roboto Mono", monospace;
-      font-size: 11px;
-      letter-spacing: 0.1em;
-      line-height: 1.35;
+      font-size: 12px;
+      font-weight: bold;
+      letter-spacing: 0.14em;
+      line-height: 1.5;
       text-align: center;
       background: rgba(22, 22, 29, 0.94);
       border-radius: 8px;
@@ -511,6 +512,7 @@
       transition: opacity 0.22s ease, transform 0.22s ease;
       z-index: 42;
     }
+    #voidBanner span, #voidBannerNear span { display: block; }
     #voidBanner {
       color: #E8E8F2;
       border: 1px solid #4A4A5C;
@@ -1102,8 +1104,8 @@
   <div id="scanHint">SIGNAL TOO WEAK вЂ” SLOW BELOW <span id="scanHintNum">500</span> m/s</div>
   <div id="scanResult"></div>
   <div id="scanResults" aria-live="polite"></div>
-  <div id="voidBanner">INTO THE VOID — TURN BACK</div>
-  <div id="voidBannerNear">EDGE OF SYSTEM — TURN BACK</div>
+  <div id="voidBanner"><span>INTO THE VOID</span><span>TURN BACK</span></div>
+  <div id="voidBannerNear"><span>EDGE OF SYSTEM</span><span>TURN BACK</span></div>
   <div id="voidEdge" aria-hidden="true"></div>
   <div id="safeToast">CONTROL RETURNED</div>
   <div id="safeEdge" aria-hidden="true"></div>

@@ -1046,10 +1046,8 @@ export class Track {    positions = new Deque<Vec2>(UniverseConst.TRACK_LENGTH);
     private lastX = NaN;
     private lastY = NaN;
     add(x: number, y: number, a: number, now: number) {
-        // Distance-sampled (user 2026-11-09): one point per
-        // TRACK_SAMPLE_DIST of travel instead of one per sim step — an
-        // even trail at any speed.
-        if (!isNaN(this.lastX) && Math.hypot(x - this.lastX, y - this.lastY) < UniverseConst.TRACK_SAMPLE_DIST) return;
+        // Per-step capture (user 2026-11-09): the tail grows smoothly at ANY
+        // speed — the old distance-sampling made slow flight look jumpy.
         this.lastX = x;
         this.lastY = y;
         if (this.positions.size() >= (UniverseConst.TRACK_LENGTH - 1)) {

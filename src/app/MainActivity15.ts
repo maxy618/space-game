@@ -858,6 +858,12 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
 
     const space = Spaaaace(universe, zoomedDrawScope);
 
+    // Stick desired heading (smooth-turn target, user 2026-11-09): the ship
+    // does NOT snap its nose to the stick — it turns toward the stick's bar
+    // until the bars dock into one line.
+    let stickDesiredAngle: number | null = null;
+    let stickMag = 0;
+
     // Flight stick sized 1.5x smaller than the reference (user request): the
     // full-size stick felt like it covered the whole screen on phones.
     const minRadius = toLocalPx(33);
@@ -870,28 +876,22 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         (x, y, isDown) => {
             // every device feeds the same action layer (P04-T01); the stick
             // mapping below stays the reference behavior for stick input.
+            // The SHIP does NOT snap to the stick — applyKeyboardFlight
+            // smoothly turns the nose toward stickDesiredAngle instead.
             inputLayer.setStick(x, y, isDown);
             if (universe.follow instanceof Spacecraft) {
                 const ship = universe.follow as Spacecraft;
-                if (x === 0 && y === 0) {
+                if (!isDown) {
+                    stickDesiredAngle = null;
+                    stickMag = 0;
                     ship.thrust.x = 0;
                     ship.thrust.y = 0;
                 } else {
-                    const a = atan2(y, x);
-                    ship.angle = a;
-
+                    stickDesiredAngle = atan2(y, x);
                     const m = sqrt(x * x + y * y);
-                    if (m < minRadius) {
-                        // within this radius, just reorient
-                        ship.thrust.x = 0;
-                        ship.thrust.y = 0;
-                    } else {
-                        Vec2_makeWithAngleMag(
-                            ship.thrust,
-                            a,
-                            clamp(lexp(minRadius, maxRadius, m), 0, 1)
-                        );
-                    }
+                    stickMag = m < minRadius ? 0 : clamp(lexp(minRadius, maxRadius, m), 0, 1);
+                    ship.thrust.x = 0;
+                    ship.thrust.y = 0;
                 }
             }
         }
@@ -903,38 +903,38 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     // joystick direction, button-colored shows the ship heading; aligned =
     // straight flight. Only while the stick is touched (fade on release).
     let stickBarsAlpha = 0;
-    function drawStickBars(context: CanvasRenderingContext2D, _helper: CanvasHelper) {
+    function drawStickBars(context: CanvasRenderingContext2D, helper: CanvasHelper) {
         const actions = inputLayer.resolve();
-        if (actions.stickActive) stickBarsAlpha = Math.min(1, stickBarsAlpha + 0.15);
-        else stickBarsAlpha = Math.max(0, stickBarsAlpha - 0.08);
+        if (actions.stickActive) stickBarsAlpha = Math.min(1, stickBarsAlpha + 0.12);
+        else stickBarsAlpha = Math.max(0, stickBarsAlpha - 0.06);
         if (stickBarsAlpha <= 0.01) return;
         const dpr = window.devicePixelRatio || 1;
-        const cx = context.canvas.width / 2;
-        const cy = context.canvas.height / 2;
+        // anchor: the SHIP (the camera chase has an offset, the ship is not
+        // always dead-center) — convert world (top-left + span) to device px.
+        const zoom = context.canvas.width / Math.max(1, helper.width);
+        const sx = (universe.ship.pos.x - helper.x) * zoom;
+        const sy = (universe.ship.pos.y - helper.y) * zoom;
         const stickA = Math.atan2(actions.stickY, actions.stickX);
         const shipA = universe.ship.angle;
-        const bar = (ang: number, color: string) => {
+        // two concentric invisible rings around the ship: the near bar (ship
+        // heading, button color) and the far bar (stick, white). Directed
+        // collinearly they dock into one perfect line = straight flight.
+        const ringNear = 30 * dpr;
+        const ringFar = 46 * dpr;
+        const tick = (ring: number, ang: number, color: string) => {
             context.save();
-            context.translate(cx, cy);
+            context.translate(sx + Math.cos(ang) * ring, sy + Math.sin(ang) * ring);
             context.rotate(ang);
             context.fillStyle = color;
-            context.globalAlpha = stickBarsAlpha * 0.9;
+            context.globalAlpha = stickBarsAlpha * 0.95;
             context.beginPath();
-            context.roundRect(-44 * dpr / 2, -9 * dpr / 2, 44 * dpr, 9 * dpr, 4.5 * dpr);
+            context.roundRect(-16 * dpr, -3.2 * dpr, 32 * dpr, 6.4 * dpr, 3.2 * dpr);
             context.fill();
             context.restore();
         };
-        bar(stickA, "#FFFFFF");
-        bar(shipA, "#7A7A9E");
-        if (stickBarsAlpha >= 0.99) {
-            const deg = Math.round(Math.abs(((stickA - shipA) % (PI * 2) + PI * 3) % (PI * 2) - PI) * 180 / PI);
-            context.save();
-            context.font = `${12 * dpr}px 'Roboto Mono', monospace`;
-            context.fillStyle = "rgba(255,255,255," + (0.85 * stickBarsAlpha) + ")";
-            context.textAlign = "center";
-            context.fillText(deg + "°", cx, cy - 36 * dpr);
-            context.restore();
-        }
+        context.globalAlpha = 1;
+        tick(ringNear, shipA, "#7A7A9E");
+        tick(ringFar, stickA, "#FFFFFF");
     }
     const telemetry = Telemetry(universe, autopilot, topText, bottomText, topContainer, bottomContainer, autopilotText);
     const ship = universe.ship as Spacecraft15;
@@ -964,6 +964,29 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             target.thrust.x = 0;
             target.thrust.y = 0;
             lastFrameMillis = millis;
+            return;
+        }
+        const dt = lastFrameMillis < 0 ? 0 : clamp((millis - lastFrameMillis) / 1000, 0, 0.1);
+        if (target !== null && actions.stickActive) {
+            // STICK steering (user 2026-11-09): the ship does NOT snap nose
+            // to the stick — it turns smoothly toward the stick's bar until
+            // the bars dock into one line.
+            if (stickDesiredAngle !== null) {
+                let err = stickDesiredAngle - target.angle;
+                while (err > PI) err -= PI * 2;
+                while (err < -PI) err += PI * 2;
+                const maxTurn = 2.0 * dt;
+                const turn = clamp(err, -maxTurn, maxTurn);
+                target.angle += turn;
+                steerMotor = maxTurn > 0 ? clamp(turn / maxTurn, -1, 1) : 0;
+                (target as unknown as { steerMotor?: number }).steerMotor = steerMotor;
+                if (stickMag > 0) Vec2_makeWithAngleMag(target.thrust, target.angle, stickMag);
+                else { target.thrust.x = 0; target.thrust.y = 0; }
+            }
+            lastFrameMillis = millis;
+            inputLayer.consumeEdge("interact");
+            inputLayer.consumeEdge("scan");
+            inputLayer.consumeEdge("landLaunch");
             return;
         }
         if (target !== null && !actions.stickActive) {
@@ -1374,18 +1397,18 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 pendingLabels.push({ x: px + 16, y: py + 3, text: "?", prio: 2, color: "rgba(122,122,158,0.7)" });
             }
         }
-        // label placement (user 2026-11-09): ONLY when zoomed in well on
-        // the object (deep zoom). Labels sit OVER the object with a 100%
-        // opaque plate — always maximally readable, never ghosted.
+        // label placement (user 2026-11-09): ONLY when zoomed RIGHT on the
+        // object (deep zoom). Labels sit OVER the object with a 100%
+        // opaque plate, LARGE text (readable on phones), never ghosted.
         const placedLabels: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
         {
-            const minZoomFor = (text: string) => text.length > 2 ? 4 : 3;
+            const minZoomFor = (text: string) => text.length > 2 ? 6 : 5;
             pendingLabels.sort((a, b) => a.prio - b.prio);
-            ctx2.font = "bold 13px 'Roboto Mono', monospace";
+            ctx2.font = "bold 17px 'Roboto Mono', monospace";
             for (const L of pendingLabels) {
                 if (radarZoom < minZoomFor(L.text)) continue;
-                const w = L.text.length * 6.8 + 10;
-                const x0 = L.x - w / 2, y0 = L.y - 24, x1 = L.x + w / 2, y1 = L.y - 10;
+                const w = L.text.length * 10.2 + 14;
+                const x0 = L.x - w / 2, y0 = L.y - 30, x1 = L.x + w / 2, y1 = L.y - 10;
                 if (x0 < 4 || y0 < 4 || x1 > W - 4 || y1 > H - 4) continue;
                 let clash = false;
                 for (const R of placedLabels) {
@@ -1400,22 +1423,22 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 ctx2.lineWidth = 1;
                 ctx2.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0 - 1, y1 - y0 - 1);
                 ctx2.fillStyle = "#FFFFFF";
-                ctx2.fillText(L.text, x0 + 5, y1 - 4);
+                ctx2.fillText(L.text, x0 + 7, y1 - 6);
             }
         }
-        if (radarZoom >= 6) {
+        if (radarZoom >= 8) {
             const cands: Array<{ x: number; y: number; text: string; r: number }> = [];
             for (const a of universe.asteroids) {
                 if (!a.scanned) continue;
                 const [px, py] = worldToScreen(a.pos.x, a.pos.y);
                 if (px < 20 || py < 20 || px > W - 20 || py > H - 20) continue;
-                cands.push({ x: px, y: py, text: "Ø" + Math.round(a.radius * 2) + " m", r: a.radius });
+                cands.push({ x: px, y: py, text: Math.round(a.radius * 2) + "M", r: a.radius });
             }
             cands.sort((a, b) => b.r - a.r); // biggest first
-            ctx2.font = "bold 10px 'Roboto Mono', monospace";
+            ctx2.font = "bold 14px 'Roboto Mono', monospace";
             for (const L of cands.slice(0, 24)) {
-                const w = L.text.length * 6.8 + 10;
-                const x0 = L.x - w / 2, y0 = L.y - 24, x1 = L.x + w / 2, y1 = L.y - 10;
+                const w = L.text.length * 8.6 + 12;
+                const x0 = L.x - w / 2, y0 = L.y - 26, x1 = L.x + w / 2, y1 = L.y - 8;
                 if (x0 < 4 || y0 < 4 || x1 > W - 4 || y1 > H - 4) continue;
                 let clash = false;
                 for (const R of placedLabels) {
@@ -2179,16 +2202,18 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         if (u.safetyEnabled === false) return;
         const t = universe.impactThreat;
         if (t === null) return;
-        if (t.tti > 2.0) return; // last moment only — warning did its job
         const spd0 = ship.velocity.mag();
         if (spd0 < 300) return; // gentle landing approach — let her land
-        // smart pick: brake to ≤500 if it saves us, else evade sideways
-        const closing = 0; // tti already implies closing; use speed
-        const spd = ship.velocity.mag();
-        const dv = Math.max(0, Math.hypot(ship.velocity.x, ship.velocity.y));
+        // SMART LAST MOMENT (user 2026-11-09 fixed after the star kill): a
+        // fixed 2s threshold is too late when braking physically cannot stop
+        // us in time. Engage when (a) we are literally out of time (tti ≤ 2s)
+        // OR (b) braking is ALREADY insufficient — must act NOW (evasion).
+        const dv = Math.max(0, spd0 - 500);
         const brakeDist = (dv * dv) / (2 * Math.max(1, ship.profile.engineAccel));
-        const threatDist = Math.hypot(t.x - ship.pos.x, t.y - ship.pos.y);
-        const mode: "brake" | "evade" = brakeDist <= threatDist * 0.75 ? "brake" : "evade";
+        const impactDist = t.tti * spd0;
+        const brakingSaves = brakeDist <= impactDist * 0.75;
+        if (t.tti > 2.0 && brakingSaves) return;
+        const mode: "brake" | "evade" = brakingSaves ? "brake" : "evade";
         safeMode = mode;
         setSafeHold(true);
         routePilot.active = false; // safety outranks the route pilot
@@ -2262,15 +2287,18 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             let err = Math.abs(((ship.angle - toStar + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
             if (err < 1.0) voidActive = false; // ± ~57° cone back home
         }
-        // subtle wrap-back at the very edge (no blackout, invisible): when we
-        // physically hit the ring, the ship is woven back inside — the
-        // illusion of endless flight. Void state (once entered) stays until
-        // the player steers home, so we never fly away forever.
-        if (d > R - 40) {
-            const f = (R - 6000) / d;
-            ship.pos.x *= f;
-            ship.pos.y *= f;
-            Vec2_copy(ship.opos, ship.pos);
+        // soft border (user 2026-11-09, no teleport, no wall): approaching
+        // the ring we simply SLOW DOWN outward — you can skim the border
+        // but never fly out through it. The pinch point bleeds radial speed.
+        if (d > R - 20000 && ship.pos.mag() > 0) {
+            const n = Vec2_makeWithAngleMag(Vec2.Zero(), ship.pos.angle(), 1);
+            const radial = ship.velocity.x * n.x + ship.velocity.y * n.y;
+            if (radial > 0) {
+                const bleed = (d - (R - 20000)) / 20000; // 0..1 as we close
+                const cut = 1 - Math.min(1, Math.max(0, bleed)) * 0.9;
+                ship.velocity.x -= n.x * radial * (1 - cut);
+                ship.velocity.y -= n.y * radial * (1 - cut);
+            }
         }
         if (voidBanner) {
             voidBanner.classList.toggle("active", voidActive);
