@@ -1009,12 +1009,13 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         }
         const res = universe.triggerScan();
         if (res.total > 0 && scanResult) {
-            // results banner: ONLY new finds, nothing at all when zero
+            // results banner: ONLY new finds, nothing at all when zero —
+            // short form "PLANET ×2 · ASTEROID ×260" (user 2026-11-09).
             const parts: string[] = [];
-            if (res.planets > 0) parts.push(res.planets + (res.planets === 1 ? " PLANET" : " PLANETS"));
-            if (res.asteroids > 0) parts.push(res.asteroids + " ASTEROID" + (res.asteroids === 1 ? "" : "S"));
-            if (res.else_ > 0) parts.push(res.else_ + " OBJECT" + (res.else_ === 1 ? "" : "S"));
-            scanResult.textContent = "SCAN COMPLETE — " + parts.join(" · ");
+            if (res.planets > 0) parts.push("PLANET ×" + res.planets);
+            if (res.asteroids > 0) parts.push("ASTEROID ×" + res.asteroids);
+            if (res.else_ > 0) parts.push("OBJECT ×" + res.else_);
+            scanResult.textContent = parts.join(" · ");
             scanResult.classList.add("active");
             if (scanResultTimer !== null) window.clearTimeout(scanResultTimer);
             scanResultTimer = window.setTimeout(() => scanResult.classList.remove("active"), 3200);
@@ -1037,9 +1038,12 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         if (scanning) {
             const dpr = window.devicePixelRatio;
             const cssH = mainCanvas.height / Math.max(1, dpr);
-            // visible meters WITHOUT pull ≈ cssH / currentZoom
+            // pull factor needed so the half-visible-span lands on the scan
+            // radius: visible = current × pull → pull = R / currentHalfSpan.
+            // (Previously inverted — dividing — so pull stuck at 1.0 and
+            // the camera never moved.)
             const currentHalfSpan = cssH / (2 * Math.max(0.000001, scanZoomBase));
-            const wantPullRaw = clamp(currentHalfSpan / (SCAN_RADIUS * 1.04), 1, SCAN_PULL_MAX);
+            const wantPullRaw = clamp((SCAN_RADIUS * 1.04) / Math.max(1, currentHalfSpan), 1, SCAN_PULL_MAX);
             scanPull = expSmooth(scanPull, wantPullRaw, universe.dt, 3.0);
         } else {
             scanPull = expSmooth(scanPull, 1, universe.dt, 1.6);
