@@ -2460,6 +2460,8 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     }
     function safeEngageCheck() {
         if (safeHold) return;
+        // Auto-land IS an intentional contact: safety must not fight it.
+        if (autoLand) return;
         const u = universe as unknown as { safetyEnabled?: boolean };
         if (u.safetyEnabled === false) return;
         const t = universe.impactThreat;

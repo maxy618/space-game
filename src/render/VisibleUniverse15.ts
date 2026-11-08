@@ -1439,6 +1439,7 @@ export class VisibleUniverse15 extends VisibleUniverse {
                 "Landroid",
                 "created planet", p, "with period", period, "and vel", speed
             );
+            p.id = it + 1; // stable id 1..N (P03-T02 contract — was missing here, broke sprite cache + routing)
             p.description = this.namer.describePlanet(this.rngForInit);
             p.atmosphere = this.namer.describeAtmo(this.rngForInit);
             p.flora = this.namer.describeLife(this.rngForInit);
