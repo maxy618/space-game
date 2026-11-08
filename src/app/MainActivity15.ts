@@ -1183,7 +1183,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                     "conic-gradient(rgba(167,167,202,0.35) " + ((1 - frac) * 360) + "deg, rgba(22,22,29,0.72) 0deg)";
             } else if (tooFast) {
                 (scanButton as HTMLButtonElement).disabled = true;
-                scanButton.style.background = "rgba(44,30,30,0.85)";
+                scanButton.style.background = ""; // grey like the boost button (user 2026-11-09)
             } else {
                 (scanButton as HTMLButtonElement).disabled = false;
                 scanButton.style.background = "";
