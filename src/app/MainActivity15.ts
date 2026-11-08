@@ -2221,6 +2221,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         safeButton?.classList.toggle("hold", on);
         safeEdge?.classList.toggle("active", on);
         if (!on) {
+            ship.thrustMultiplier = 1; // restore the normal engine
             playerTookControl = false;
             if (universe.impactThreat === null || ship.velocity.mag() <= 520) safeShowToast("CONTROL RETURNED");
         }
@@ -2247,7 +2248,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const dwell = 900; // nose swing eats ~0.5-1s of margin
         const brakingSaves = brakeDist + dwell <= impactDist * 0.85;
         console.debug("[safe] gate tti=" + t.tti.toFixed(2) + " brakeDist=" + Math.round(brakeDist + dwell) + " impD=" + Math.round(impactDist * 0.85) + " saves=" + brakingSaves);
-        if (t.tti > 4.0 && brakingSaves) return;
+        if (t.tti > 5.0 && brakingSaves) return;
         const mode: "brake" | "evade" = brakingSaves ? "brake" : "evade";
         safeMode = mode;
         console.debug("[safe] ENGAGE " + mode);
@@ -2289,11 +2290,23 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         while (err < -PI) err += PI * 2;
         const maxTurn = 3.2 * dt; // emergency yaw is quick
         ship.angle += clamp(err, -maxTurn, maxTurn);
+        // THE BIGGEST SURVIVAL LEVER (user 2026-11-09 RAM-proof): during
+        // the takeover the brake uses a doubled engine (boost-grade) — the
+        // same burn the player gets from the burner, no speed cap fare.
+        ship.thrustMultiplier = 2;
         (ship as unknown as { steerMotor?: number }).steerMotor = maxTurn > 0 ? clamp(err / maxTurn, -1, 1) : 0;
-        ship.thrust.x = Math.cos(ship.angle);
-        ship.thrust.y = Math.sin(ship.angle);
+        // until the nose is aligned, thrust is ZERO (burning forward into the
+        // threat while swinging around used to eat the whole margin).
+        if (Math.abs(err) > 0.5) {
+            ship.thrust.x = 0;
+            ship.thrust.y = 0;
+        } else {
+            ship.thrust.x = Math.cos(ship.angle);
+            ship.thrust.y = Math.sin(ship.angle);
+        }
         playerTookControl = false;
     }
+    // (thrustMultiplier is reset inside setSafeHold on release)
     // ===== Landing assist (user 2026-11-09): the landing button works like
     // the scanner's gate — near a planet at low speed (<1000 m/s) it is
     // armed; a tap runs a smooth AUTOMATIC touchdown (brake, approach,
