@@ -1905,9 +1905,12 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             { intermediate },
         );
         // steering (pilot owns the nose in chase/brake; player steers in stop)
+        // CHASE: face the target; BRAKE: face retrograde (the engine pushes
+        // only along the nose — braking is a nose-flip, not a vector burn).
         if (routePilot.phase !== "stopped") {
             const bearing = Math.atan2(cur.y - ship.pos.y, cur.x - ship.pos.x);
-            let err = bearing - ship.angle;
+            const pilotBearing = routePilot.phase === "brake" ? bearing + Math.PI : bearing;
+            let err = pilotBearing - ship.angle;
             while (err > PI) err -= PI * 2;
             while (err < -PI) err += PI * 2;
             const maxTurn = KEYBOARD_TURN_RATE * dt;
