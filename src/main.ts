@@ -527,10 +527,9 @@ scanButton.addEventListener("click", () => {
 });
 const radarButton = document.getElementById("radarButton") as HTMLButtonElement;
 const radarCanvas = document.getElementById("radarCanvas") as HTMLCanvasElement;
-const radarCloseBtn = document.getElementById("radarClose") as HTMLButtonElement;
+const routeCloseBtn = document.getElementById("routeClose") as HTMLButtonElement;
 const routeAdd = document.getElementById("routeAdd") as HTMLButtonElement;
 const routeDel = document.getElementById("routeDel") as HTMLButtonElement;
-const routeClear = document.getElementById("routeClear") as HTMLButtonElement;
 const routeGo = document.getElementById("routeGo") as HTMLButtonElement;
 const objectInfo = document.getElementById("objectInfo") as HTMLElement;
 const objectInfoTitle = document.getElementById("objectInfoTitle") as HTMLElement;
@@ -578,24 +577,21 @@ radarButton.addEventListener("click", () => {
     setRadarOpen(!radarOpen);
     radarButton.blur();
 });
-// Close ONLY via the ✕ above the map's top-right corner (no backdrop close).
-radarCloseBtn.addEventListener("click", () => setRadarOpen(false));
+// Close ONLY via the bottom-row ✕ (no backdrop close, no top cross).
+routeCloseBtn.addEventListener("click", () => setRadarOpen(false));
 // keyboard: Q scans, R toggles the radar
 inputLayer.setEdgeHandler("scan", () => scanButton.click());
 window.addEventListener("keydown", (e) => {
     if (e.code === "KeyR" && !e.repeat) radarButton.click();
 });
 
-// ===== Route autopilot UI (user 2026-11-09 v3) =====
-// Four square buttons confirm the route bar: ADD (+) pick mode, DELETE (−)
-// click-to-delete mode (the highlighted square tells the player to click a
-// node; neighbors then chain directly), CANCEL (red, clears all), GO
-// (green, launch). ADD NODE works at ANY point (snapping to a planet glyph
-// within 14 px). Close the radar with ✕; clicking in view mode opens the
-// object info card (bottom-left).
+// ===== Route autopilot UI (user 2026-11-09 v4) =====
+// Bottom row: ADD (+) pick mode, DELETE (−) click-to-delete mode, CONFIRM
+// (checkmark, launch), CLOSE (✕, bottom right). ADD NODE works at ANY point
+// (snapping to a planet glyph within 22 px). Close the radar with the bottom
+// ✕; clicking in view mode opens the object info card (top band).
 routeAdd.addEventListener("click", () => setRadarPick(!radarPick));
 routeDel.addEventListener("click", () => setRadarDelete(!radarDel));
-routeClear.addEventListener("click", () => { activity.clearRoute?.(); setRadarPick(false); setRadarDelete(false); });
 routeGo.addEventListener("click", () => {
     if (activity.startRoute()) {
         setRadarPick(false);

@@ -68,27 +68,39 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         const blobs = colors.map((color, i) => ({
             x: (next() - 0.5) * 60000,
             y: (next() - 0.5) * 60000,
-            r: 22000 + next() * 26000,
+            r: 22000 + next() * 30000,
             rot: next() * PI * 2,
             color,
-            // slightly more visible (user 2026-11-08) — soft edges via
-            // shadow-blur halo in drawNebula carry the rest of the lift
-            alpha: 0.08 + 0.04 * (i % 2) + next() * 0.04,
+            // visible but restrained (user 2026-11-09 "красивые, максимально")
+            alpha: 0.15 + 0.05 * (i % 2) + next() * 0.06,
             rr: Array.from({ length: 12 }, () => 0.65 + next() * 0.6),
         }));
-        // GREAT nebula sheets (user 2026-11-09): 3 enormous, ultra-faint
-        // clouds far from the core — encountered occasionally while traveling,
-        // each a different scale and hue. Never tiled, never noisy.
+        // GREAT nebula sheets (user 2026-11-09): 3 enormous clouds far from the
+        // core — encountered occasionally while traveling, each a different
+        // scale and hue. Never tiled, never noisy.
         const sheets = [
-            { x: -190000, y: 150000, r: 110000, color: "#3A5E7E", alpha: 0.05 },
-            { x: 220000, y: -120000, r: 80000, color: "#6E4E86", alpha: 0.04 },
-            { x: 60000, y: 240000, r: 95000, color: "#3E7E6E", alpha: 0.045 },
+            { x: -190000, y: 150000, r: 110000, color: "#3A5E7E", alpha: 0.10 },
+            { x: 220000, y: -120000, r: 80000, color: "#6E4E86", alpha: 0.09 },
+            { x: 60000, y: 240000, r: 95000, color: "#3E7E6E", alpha: 0.10 },
         ];
         for (const sh of sheets) {
             blobs.push({
                 ...sh,
                 rot: next() * PI * 2,
                 rr: Array.from({ length: 14 }, () => 0.6 + next() * 0.7),
+            });
+        }
+        // SHOWCASE giants (user 2026-11-09): big, beautiful, inclined, rare —
+        // few of them, so they read as accents, not wallpaper.
+        const giants = [
+            { x: -260000, y: -90000, r: 85000, color: "#8A5E9A", alpha: 0.20 },
+            { x: 150000, y: 260000, r: 70000, color: "#4E7E9A", alpha: 0.18 },
+        ];
+        for (const g of giants) {
+            blobs.push({
+                ...g,
+                rot: next() * PI * 2,
+                rr: Array.from({ length: 16 }, () => 0.55 + next() * 0.75),
             });
         }
         return blobs;
