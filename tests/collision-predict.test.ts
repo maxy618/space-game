@@ -5,8 +5,8 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-    timeToImpact, impactGatesPass, evaluateImpact,
-    IMPACT_NOSE_HALF_ANGLE, IMPACT_MIN_CLOSING,
+    timeToImpact, impactGatesPass, impactLatchedThreat, evaluateImpact,
+    IMPACT_NOSE_HALF_ANGLE, IMPACT_MIN_CLOSING, IMPACT_CLEAR_SECONDS,
 } from "../src/universe/CollisionPredict";
 
 describe("timeToImpact (closed-form closest approach)", () => {
@@ -98,5 +98,20 @@ describe("evaluateImpact (level mapping)", () => {
     it("ignores ungated candidates entirely", () => {
         const s = evaluateImpact([{ bearing: 0, relCourse: 2.5, closing: 500, tti: 1.0 }], 0);
         expect(s).toBeNull();
+    });
+});
+
+describe("impact latch (user 2026-11-09)", () => {
+    it("keeps a fired warning alive while physics still predicts the impact", () => {
+        // nose turned away AFTER the alert fired: TTI/closing unchanged —
+        // the warning must persist (the ship is still flying into the body)
+        expect(impactLatchedThreat(2.0, 500)).toBe(true);
+        expect(impactLatchedThreat(IMPACT_CLEAR_SECONDS, 100)).toBe(true);
+    });
+
+    it("releases only when the impact itself is gone", () => {
+        expect(impactLatchedThreat(null, 500)).toBe(false); // miss / separating
+        expect(impactLatchedThreat(IMPACT_CLEAR_SECONDS + 0.1, 500)).toBe(false); // out of window
+        expect(impactLatchedThreat(2.0, IMPACT_MIN_CLOSING - 1)).toBe(false); // braked to landing pace
     });
 });

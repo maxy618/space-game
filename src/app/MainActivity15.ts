@@ -44,8 +44,8 @@ import { FlightStick } from "../input/FlightStick";
 import { InputActionLayer } from "../input/InputActions";
 import { Autopilot15 } from "../sim/Autopilot15";
 import { VisibleUniverse } from "../render/VisibleUniverse";
-import { timeToImpact, impactGatesPass, IMPACT_CLEAR_SECONDS, IMPACT_CRITICAL_SECONDS } from "../universe/CollisionPredict";
-import { SCAN_COOLDOWN } from "../universe/Scanner";
+import { timeToImpact, impactGatesPass, impactLatchedThreat, IMPACT_CLEAR_SECONDS, IMPACT_CRITICAL_SECONDS } from "../universe/CollisionPredict";
+import { SCAN_COOLDOWN, SCAN_RADIUS, SCAN_WAVE_SECONDS } from "../universe/Scanner";
 import { createRoutePilot, pilotStep, type RouteThreat } from "../sim/RoutePilot";
 import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, fisheyeTargetForSpeed, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M, decayKick, kickMetersForScreenPx } from "../camera/Camera";
 import { newRandom } from "../core/RandomKt";
@@ -100,6 +100,13 @@ let isControlsShow = false;
 // Scanner/radar shared state (module scope — MainActivity15 and its
 // Spaaaace camera closure both read these).
 let scanPull = 1;   // smoothed extra zoom-out factor while the scan wave runs
+/** Base zoom (without the scan pull) mirrored from Spaaaace each frame. */
+let scanZoomBase = 0.004;
+const mainCanvas = document.getElementById("canvasMain") as HTMLCanvasElement;
+/** Scanner needs a SLOW ship (user 2026-11-09: threshold lowered to 500). */
+const SCAN_SPEED_MAX = 500;
+/** Hard cap of the scan camera pull (× the normal zoom-out). */
+const SCAN_PULL_MAX = 6;
 let radarOpen = false; // radar overlay state (mirrored in main.ts via setRadarOpen)
 
 const atan2 = Math.atan2;
@@ -231,6 +238,7 @@ function Spaaaace(
     zoomedDrawScope: ZoomedDrawScope15
 ) {
     let cameraZoom = camZoom;
+    let zoomBase = camZoom; // smoothed zoom WITHOUT the scan pull
     let cameraOffsetX = 0;
     let cameraOffsetY = 0;
     // Smoothed follow center (P05-T02): the chase lives in the camera layer,
@@ -415,20 +423,30 @@ function Spaaaace(
         return c;
     };
     const dpr0 = () => (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
+    // Six DISTINCT galaxy sprites (user 2026-11-09: "сетка одинаковых
+    // туманностей" fix): varied hue, size, arm count — plus PER-TILE hash
+    // placement so no two tiles repeat the same layout; density halved.
     const galaxies = [
-        { rx: 20, alpha: 0.55, hue: "#9FB4E8", coreHue: "#FFE8C8" },
-        { rx: 11, alpha: 0.42, hue: "#E8C8B0", coreHue: "#FFF2DC" },
-        { rx: 6, alpha: 0.30, hue: "#A8C8E8", coreHue: "#FFE8C8" },
+        { rx: 20, hue: "#9FB4E8", coreHue: "#FFE8C8" },
+        { rx: 11, hue: "#E8C8B0", coreHue: "#FFF2DC" },
+        { rx: 6, hue: "#A8C8E8", coreHue: "#FFE8C8" },
+        { rx: 14, hue: "#C8A8D8", coreHue: "#FFDDE8" },
+        { rx: 9, hue: "#8AC8B8", coreHue: "#D8F2E8" },
+        { rx: 17, hue: "#D8B878", coreHue: "#FFEEDD" },
     ].map(g => ({
-        x: starfieldRng.minmax(0, 512),
-        y: starfieldRng.minmax(0, 512),
         rx: g.rx,
-        alpha: g.alpha,
         hue: g.hue,
         coreHue: g.coreHue,
-        rot: starfieldRng.minmax(0, PI),
         sprite: buildGalaxySprite(() => starfieldRng.float(), g.hue, g.coreHue),
     }));
+    /** Deterministic tile hash → [0,1): de-correlates tiled sky layers. */
+    const tileHash = (tx: number, ty: number, i: number): number => {
+        let h = (tx * 73856093) ^ (ty * 19349663) ^ (i * 83492791);
+        h = Math.imul(h ^ (h >>> 15), 2246822519);
+        h = Math.imul(h ^ (h >>> 13), 3266489917);
+        h ^= h >>> 16;
+        return (h >>> 0) / 4294967296;
+    };
     // Near debris (user 2026-11-08): tiny tumbling rock triangles on a fast
     // parallax plane (2.5 px/m) — they whizz past close to the camera and
     // give the "flying through a debris cloud" feel of volume.
@@ -538,21 +556,27 @@ function Spaaaace(
                 }
                 w2.globalAlpha = 1;
             };
-            // galaxies first (deepest): pre-rendered spiral sprites
+            // galaxies first (deepest): pre-rendered spiral sprites.
+            // PER-TILE hash placement (user 2026-11-09): every tile gets its
+            // own random members/positions/sizes/rotations — the old fixed
+            // layout repeated identically every 512 px and read as a grid.
             {
                 const gox = -parallaxOffsetPx(chaseX, dpr, STARFIELD_PARALLAX_PX_PER_M * 0.6);
                 const goy = -parallaxOffsetPx(chaseY, dpr, STARFIELD_PARALLAX_PX_PER_M * 0.6);
-                for (const g of galaxies) {
-                    const bx = wrapTile(g.x + gox, tile);
-                    const by = wrapTile(g.y + goy, tile);
-                    const size = g.rx * 2 * dpr;
-                    for (let tx = 0; tx < tilesX; tx++) {
-                        for (let ty = 0; ty < tilesY; ty++) {
+                for (let tx = 0; tx < tilesX; tx++) {
+                    for (let ty = 0; ty < tilesY; ty++) {
+                        for (let i = 0; i < 2; i++) { // ≤2 galaxies per tile
+                            const pick = tileHash(tx, ty, i);
+                            if (pick > 0.5) continue; // sparser than before (was all 3 per tile)
+                            const sprite = galaxies[Math.floor(tileHash(tx, ty, i + 91) * galaxies.length) % galaxies.length];
+                            const size = (6 + tileHash(tx, ty, i + 37) * 22) * dpr;
+                            const wx = wrapTile(tileHash(tx, ty, i + 11) * tile + gox, tile) + tx * tile;
+                            const wy = wrapTile(tileHash(tx, ty, i + 23) * tile + goy, tile) + ty * tile;
                             w2.save();
-                            w2.translate(bx + tx * tile, by + ty * tile);
-                            w2.rotate(g.rot);
-                            w2.globalAlpha = g.alpha;
-                            w2.drawImage(g.sprite, -size / 2, -size / 2, size, size);
+                            w2.translate(wx, wy);
+                            w2.rotate(tileHash(tx, ty, i + 51) * PI * 2);
+                            w2.globalAlpha = 0.12 + tileHash(tx, ty, i + 67) * 0.2;
+                            w2.drawImage(sprite.sprite, -size / 2, -size / 2, size, size);
                             w2.restore();
                         }
                     }
@@ -626,12 +650,22 @@ function Spaaaace(
                 const t = clamp((speed - UniverseConst.CRAFT_SPEED_LIMIT) / (UniverseConst.CRAFT_SPEED_LIMIT_BOOST - UniverseConst.CRAFT_SPEED_LIMIT), 0, 1);
                 factor = SPEED_ZOOM_FAR + (SPEED_ZOOM_FAR_BOOST - SPEED_ZOOM_FAR) * t * t;
             }
-            const targetZoom = (camZoom / CAMERA_DISTANCE) / factor / scanPull;
+            const targetZoom = (camZoom / CAMERA_DISTANCE) / factor;
             // Clamp to a positive range: a zero/negative cameraZoom would hang the
             // gridStep while-loop below and freeze the whole page.
-            cameraZoom = clamp(expSmooth(cameraZoom, targetZoom, u.dt, 2.5), MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
-        } else if (!TOUCH_CAMERA_ZOOM) cameraZoom = isBaklava ? expSmooth(cameraZoom, DEFAULT_CAMERA_ZOOM / CAMERA_DISTANCE, u.dt, 5) : DEFAULT_CAMERA_ZOOM / CAMERA_DISTANCE;
-        else cameraZoom = isBaklava ? expSmooth(cameraZoom, camZoom / CAMERA_DISTANCE, u.dt, 5) : camZoom / CAMERA_DISTANCE;
+            // The scan pull lives OUTSIDE the smoothed clamp (user 2026-11-09):
+            // zoomBase converges to its own target; cameraZoom = base/pull.
+            zoomBase = clamp(expSmooth(zoomBase, targetZoom, u.dt, 2.5), MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
+            cameraZoom = zoomBase / scanPull;
+        } else if (!TOUCH_CAMERA_ZOOM) {
+            cameraZoom = isBaklava ? expSmooth(cameraZoom, DEFAULT_CAMERA_ZOOM / CAMERA_DISTANCE, u.dt, 5) : DEFAULT_CAMERA_ZOOM / CAMERA_DISTANCE;
+            zoomBase = cameraZoom;
+        } else {
+            cameraZoom = isBaklava ? expSmooth(cameraZoom, camZoom / CAMERA_DISTANCE, u.dt, 5) : camZoom / CAMERA_DISTANCE;
+            zoomBase = cameraZoom;
+        }
+        // Mirror the pull-free base zoom out of the closure (scanner reads it).
+        scanZoomBase = zoomBase;
         if (!TOUCH_CAMERA_PAN) {
             const follow = u.follow;
             if (follow !== null) {
@@ -696,9 +730,9 @@ function Spaaaace(
         const visibleSpaceRectMeterCenterX = visibleSpaceRectMeterLeft + (visibleSpaceSizeMeterWidth / 2);
         const visibleSpaceRectMeterCenterY = visibleSpaceRectMeterTop + (visibleSpaceSizeMeterHeight / 2);
 
-        let gridStep = 1000;
-        const dp32 = toLocalPx(32);
-        while (gridStep * deviceScale < dp32) gridStep *= 10;
+        // World background grid REMOVED (user 2026-11-09): the 10-pow grid
+        // over the real map read as noise; the radar schematic map has its
+        // own subtle grid instead.
 
         w2.save();
         w2.scale(deviceScale, deviceScale);
@@ -720,27 +754,6 @@ function Spaaaace(
         //     visibleSpaceRectMeters.size,
         //     style = Stroke(width = 10f / cameraZoom)
         // )
-
-        var x = floor(visibleSpaceRectMeterLeft / gridStep) * gridStep;
-        w2.strokeStyle = Colors.Eigengrau2;
-        while (x < visibleSpaceRectMeterRight) {
-            w2.lineWidth = (((x % (gridStep * 10) === 0)) ? 3 : 1.5) / cameraZoom;
-            w2.beginPath();
-            w2.moveTo(x, visibleSpaceRectMeterTop);
-            w2.lineTo(x, visibleSpaceRectMeterBottom);
-            w2.stroke();
-            x += gridStep;
-        }
-
-        var y = floor(visibleSpaceRectMeterTop / gridStep) * gridStep;
-        while (y < visibleSpaceRectMeterBottom) {
-            w2.lineWidth = (((y % (gridStep * 10) === 0)) ? 3 : 1.5) / cameraZoom;
-            w2.beginPath();
-            w2.moveTo(visibleSpaceRectMeterLeft, y);
-            w2.lineTo(visibleSpaceRectMeterRight, y);
-            w2.stroke();
-            y += gridStep;
-        }
 
         zoomedDrawScope.zoom = cameraZoom;
         zoomedDrawScope.context = w2;
@@ -969,28 +982,80 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     }
 
     // ===== Scanner (user 2026-11-09, NMS-style) =====
-    // Trigger → wave visual + instant reveal of planets in range + a brief
-    // camera pull-out so the player sees the sweep "from above".
+    // Trigger → wave visual + instant reveal of bodies in range + a STRONG,
+    // SMOOTH camera pull-out ("намного сильнее чем на макс скорости").
+    // Contract:
+    //  - SCANNER needs a slow ship: speed < SCAN_SPEED_MAX (500 m/s).
+    //  - During the wave thrust is disabled (the ship keeps drifting).
+    //  - The pull is COMPUTED: the visible half-span lands on the scan
+    //    radius — anything scannable fits on screen, anything beyond it
+    //    fades under the scan vignette (drawScanWave).
     const scanButton = document.getElementById("scanButton");
     const radarOverlay = document.getElementById("radarOverlay");
     const radarCanvas = document.getElementById("radarCanvas") as HTMLCanvasElement | null;
+    const scanHint = document.getElementById("scanHint");
+    const scanResult = document.getElementById("scanResult");
+    let scanResultTimer: number | null = null;
+    let scanHintTimer: number | null = null;
     function triggerPlayerScan(): number {
-        return universe.triggerScan();
+        // speed gate (user: "скорость для скана снижаем ниже 500")
+        if (universe.ship.velocity.mag() >= SCAN_SPEED_MAX) {
+            if (scanHint) {
+                scanHint.classList.add("active");
+                if (scanHintTimer !== null) window.clearTimeout(scanHintTimer);
+                scanHintTimer = window.setTimeout(() => scanHint.classList.remove("active"), 1400);
+            }
+            return 0;
+        }
+        const res = universe.triggerScan();
+        if (res.total > 0 && scanResult) {
+            // results banner: ONLY new finds, nothing at all when zero
+            const parts: string[] = [];
+            if (res.planets > 0) parts.push(res.planets + (res.planets === 1 ? " PLANET" : " PLANETS"));
+            if (res.asteroids > 0) parts.push(res.asteroids + " ASTEROID" + (res.asteroids === 1 ? "" : "S"));
+            if (res.else_ > 0) parts.push(res.else_ + " OBJECT" + (res.else_ === 1 ? "" : "S"));
+            scanResult.textContent = "SCAN COMPLETE — " + parts.join(" · ");
+            scanResult.classList.add("active");
+            if (scanResultTimer !== null) window.clearTimeout(scanResultTimer);
+            scanResultTimer = window.setTimeout(() => scanResult.classList.remove("active"), 3200);
+        }
+        return res.total;
     }
     function updateScanFx() {
         const s = universe.scan;
-        // The camera pull starts only once the wave is underway, and is mild
-        // enough that the view never reveals more than the scanner radius.
-        const wantPull = s.waveAge >= 0.8 ? 1.18 : 1;
-        scanPull = expSmooth(scanPull, wantPull, universe.dt, 2.2);
+        // disable the gas while the sweep runs (user 2026-11-09)
+        const scanning = s.waveAge >= 0 && s.waveAge <= SCAN_WAVE_SECONDS;
+        if (scanning) {
+            ship.thrust.x = 0;
+            ship.thrust.y = 0;
+            setBoost(false);
+        }
+        // STRONG camera pull (user 2026-11-09): the visible half-span must
+        // land on the scan radius — far more sky than even top boost speed
+        // shows. Smoothed aggressively in, gently out. The feedback is
+        // self-correcting: growing half-span lowers the wanted pull.
+        if (scanning) {
+            const dpr = window.devicePixelRatio;
+            const cssH = mainCanvas.height / Math.max(1, dpr);
+            // visible meters WITHOUT pull ≈ cssH / currentZoom
+            const currentHalfSpan = cssH / (2 * Math.max(0.000001, scanZoomBase));
+            const wantPullRaw = clamp(currentHalfSpan / (SCAN_RADIUS * 1.04), 1, SCAN_PULL_MAX);
+            scanPull = expSmooth(scanPull, wantPullRaw, universe.dt, 3.0);
+        } else {
+            scanPull = expSmooth(scanPull, 1, universe.dt, 1.6);
+        }
         // button cooldown sweep
         if (scanButton) {
             const cd = s.cooldown;
+            const tooFast = universe.ship.velocity.mag() >= SCAN_SPEED_MAX;
             if (cd > 0) {
                 (scanButton as HTMLButtonElement).disabled = true;
                 const frac = cd / SCAN_COOLDOWN;
                 scanButton.style.background =
                     "conic-gradient(rgba(167,167,202,0.35) " + ((1 - frac) * 360) + "deg, rgba(22,22,29,0.72) 0deg)";
+            } else if (tooFast) {
+                (scanButton as HTMLButtonElement).disabled = true;
+                scanButton.style.background = "rgba(44,30,30,0.85)";
             } else {
                 (scanButton as HTMLButtonElement).disabled = false;
                 scanButton.style.background = "";
@@ -999,10 +1064,13 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     }
 
     /**
-     * Radar / system map (user 2026-11-09): schematic star-centered view.
-     * Discovered (scanned/explored) planets = colored glyph + name;
-     * unknown = faint hollow dot. Ship = arrow marker with velocity vector.
-     * Drawn per frame while open (the sim keeps running — it's an overlay).
+     * Radar / system map (user 2026-11-09 v2): schematic star-centered view
+     * that the player can PAN and ZOOM (wheel / drag / pinch), with a soft
+     * grid INSIDE the map. Discovered (scanned/explored) planets = contact
+     * areas (uncertainty, not exact points); visited = exact glyph; unknown
+     * = faint area + "?"; scanned asteroids = ABSTRACT density blobs on a
+     * 30 km grid (never individual rocks); cargo = diamonds + area.
+     * per frame while open (the sim keeps running — it's an overlay).
      */
     function drawRadar() {
         if (!radarOpen || !radarCanvas) return;
@@ -1012,78 +1080,243 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const H = radarCanvas.height;
         const c = W / 2;
         const star = universe.star;
-        // scale: system span + margin → radar radius
-        const maxOrbit = Math.max(
-            ...universe.planets.map(p => p.pos.distance(star.pos)),
-            UniverseConst.PLANET_ORBIT_RANGE_MIN * 1.2,
-        );
-        const scale = (W * 0.44) / maxOrbit;
         ctx2.clearRect(0, 0, W, H);
+        // world→radar transform: pan (world meters) + zoom, anchored to star
+        const scaleBase = radarBaseScale();
+        const scale = scaleBase * radarZoom;
+        const worldToScreen = (x: number, y: number): [number, number] => [
+            (x - star.pos.x - radarPanX) * scale + c,
+            (y - star.pos.y - radarPanY) * scale + c,
+        ];
+        const screenToWorld = (px: number, py: number): [number, number] => [
+            star.pos.x + radarPanX + (px - c) / scale,
+            star.pos.y + radarPanY + (py - c) / scale,
+        ];
         ctx2.save();
-        ctx2.translate(c, c);
+        // Radar uncertainty & range (user 2026-11-09): contacts are AREAS
+        // whose size grows with distance from the ship and which fade out
+        // far away — the whole map is NOT revealed at once (no cheating).
+        // Glyphs are large enough for fat fingers (18+ px hit areas).
+        const shipPos = universe.ship.pos;
+        const RADAR_RANGE = 260_000;
+        const rangeFade = (d: number) => Math.max(0, Math.min(1, (RADAR_RANGE - d) / (RADAR_RANGE * 0.55)));
+        const bucket = Math.floor(universe.now / 0.6);
+        const jitter2 = (seed: number): [number, number] => {
+            const h = (i: number) => {
+                const v = Math.sin((seed + 1) * 12.9898 + (bucket + i) * 78.233) * 43758.5453;
+                return (v - Math.floor(v)) * 2 - 1;
+            };
+            return [h(0), h(1)];
+        };
+        const drawContact = (sx: number, sy: number, seed: number, outerR: number, stroke: string, soft: string) => {
+            ctx2.fillStyle = soft;
+            ctx2.beginPath();
+            ctx2.arc(sx, sy, outerR * 0.55, 0, PI * 2);
+            ctx2.fill();
+            ctx2.strokeStyle = stroke;
+            ctx2.lineWidth = 1.4;
+            ctx2.setLineDash([4, 4]);
+            ctx2.beginPath();
+            ctx2.arc(sx, sy, outerR, 0, PI * 2);
+            ctx2.stroke();
+            ctx2.setLineDash([]);
+            const [jx, jy] = jitter2(seed);
+            ctx2.strokeStyle = stroke;
+            ctx2.lineWidth = 1.6;
+            ctx2.beginPath();
+            ctx2.moveTo(sx + jx * outerR * 0.5 - 3.5, sy + jy * outerR * 0.5);
+            ctx2.lineTo(sx + jx * outerR * 0.5 + 3.5, sy + jy * outerR * 0.5);
+            ctx2.stroke();
+        };
+        // soft grid INSIDE the map (user 2026-11-09): 10^k meters per cell
+        {
+            const cellMinPx = 44;
+            const world4px = cellMinPx / scale;
+            let stepM = 100;
+            while (stepM < world4px) stepM *= 10;
+            ctx2.strokeStyle = "rgba(60,60,76,0.35)";
+            ctx2.lineWidth = 1;
+            const [wx0, wy0] = screenToWorld(0, 0);
+            const [wx1, wy1] = screenToWorld(W, H);
+            for (let gx = Math.floor(wx0 / stepM) * stepM; gx <= wx1; gx += stepM) {
+                const [sx] = worldToScreen(gx, 0);
+                ctx2.beginPath();
+                ctx2.moveTo(sx, 0);
+                ctx2.lineTo(sx, H);
+                ctx2.stroke();
+            }
+            for (let gy = Math.floor(wy0 / stepM) * stepM; gy <= wy1; gy += stepM) {
+                const [, sy] = worldToScreen(0, gy);
+                ctx2.beginPath();
+                ctx2.moveTo(0, sy);
+                ctx2.lineTo(W, sy);
+                ctx2.stroke();
+            }
+        }
         // orbit rings (hairline)
         ctx2.strokeStyle = "rgba(60,60,76,0.9)";
-        ctx2.lineWidth = 1;
+        ctx2.lineWidth = 1 / radarZoom;
         for (const p of universe.planets) {
             const r = p.pos.distance(star.pos) * scale;
+            const [sx, sy] = worldToScreen(star.pos.x, star.pos.y);
             ctx2.beginPath();
-            ctx2.arc(0, 0, r, 0, PI * 2);
+            ctx2.arc(sx, sy, r, 0, PI * 2);
             ctx2.stroke();
         }
-        // star
-        ctx2.fillStyle = star.color;
-        ctx2.beginPath();
-        ctx2.arc(0, 0, Math.max(3, star.radius * scale * 1.6), 0, PI * 2);
-        ctx2.fill();
-        // planets
-        ctx2.font = "10px 'Roboto Mono', monospace";
+        // star (name/class only after a scan)
+        {
+            const [sx, sy] = worldToScreen(star.pos.x, star.pos.y);
+            ctx2.fillStyle = star.color;
+            ctx2.beginPath();
+            ctx2.arc(sx, sy, Math.max(3, star.radius * scale * 1.6), 0, PI * 2);
+            ctx2.fill();
+            if (star.scanned && radarZoom >= 1.6 && sx > 30 && sx < W - 30 && sy > 30 && sy < H - 30) {
+                ctx2.fillStyle = "rgba(198,198,232,0.8)";
+                ctx2.font = "10px 'Roboto Mono', monospace";
+                ctx2.textAlign = "center";
+                ctx2.fillText(star.name + " (" + star.cls + ")", sx, sy + 16);
+                ctx2.textAlign = "left";
+            }
+        }
+        // planets: SCANNED = uncertainty area (grows + fades with distance);
+        // VISITED (explored) = big exact glyph (known); unknown = faint area.
+        // Glyphs are WORLD-SIZED (user 2026-11-09): zooming IN enlarges them
+        // like everything else — they never shrink relative to the view —
+        // with px clamps so they stay finger-tappable and never absurd.
+        // Labels appear only when ZOOMED IN and only if they fit without
+        // overlapping another label (user 2026-11-09).
+        const pendingLabels: Array<{ x: number; y: number; text: string; prio: number; color: string }> = [];
         for (const p of universe.planets) {
-            const px = (p.pos.x - star.pos.x) * scale;
-            const py = (p.pos.y - star.pos.y) * scale;
-            if (p.scanned || p.explored) {
+            const [px, py] = worldToScreen(p.pos.x, p.pos.y);
+            const dist = Math.hypot(p.pos.x - shipPos.x, p.pos.y - shipPos.y);
+            const fade = rangeFade(dist);
+            if (p.explored) {
                 ctx2.fillStyle = p.color;
                 ctx2.beginPath();
-                ctx2.arc(px, py, 4, 0, PI * 2);
+                ctx2.arc(px, py, Math.max(6, Math.min(24, 5000 * scale)), 0, PI * 2);
                 ctx2.fill();
-                ctx2.fillStyle = "rgba(167,167,202,0.85)";
-                ctx2.fillText(p.name, px + 7, py + 3);
+                pendingLabels.push({ x: px + 12, y: py + 3, text: p.name, prio: 0, color: "rgba(167,167,202,0.85)" });
+            } else if (p.scanned) {
+                if (fade <= 0.02) continue;
+                ctx2.globalAlpha = fade;
+                drawContact(px, py, p.id, Math.max(13, Math.min(48, 9000 * scale + Math.min(10, dist / 30000))), p.color, "rgba(110,110,140,0.10)");
+                ctx2.globalAlpha = 1;
+                pendingLabels.push({ x: px + 18, y: py + 3, text: p.name, prio: 1, color: "rgba(167,167,202,0.85)" });
             } else {
-                ctx2.strokeStyle = "rgba(122,122,158,0.55)";
-                ctx2.lineWidth = 1.2;
-                ctx2.beginPath();
-                ctx2.arc(px, py, 3.4, 0, PI * 2);
-                ctx2.stroke();
-                ctx2.fillStyle = "rgba(122,122,158,0.7)";
-                ctx2.fillText("?", px + 6, py + 3);
+                if (fade <= 0.02) continue;
+                ctx2.globalAlpha = fade * 0.9;
+                drawContact(px, py, p.id, Math.max(11, Math.min(40, 7000 * scale + Math.min(8, dist / 36000))), "rgba(122,122,158,0.55)", "rgba(80,80,105,0.06)");
+                ctx2.globalAlpha = 1;
+                pendingLabels.push({ x: px + 16, y: py + 3, text: "?", prio: 2, color: "rgba(122,122,158,0.7)" });
             }
         }
-        // asteroid fields: faint cluster dots (radar sees big rocks at close range)
-        ctx2.fillStyle = "rgba(122,122,158,0.4)";
-        for (const a of universe.asteroids) {
-            const dx = (a.pos.x - universe.ship.pos.x) * scale;
-            const dy = (a.pos.y - universe.ship.pos.y) * scale;
-            if (dx * dx + dy * dy < (W * 0.35) * (W * 0.35)) {
-                ctx2.fillRect(
-                    (a.pos.x - star.pos.x) * scale - 1,
-                    (a.pos.y - star.pos.y) * scale - 1, 2, 2);
+        // label placement: only when zoomed in (min zoom grows with text size);
+        // greedy: highest priority first, skip any that would overlap a
+        // placed label (with a 3px gutter). Labels never touch each other.
+        {
+            const minZoomFor = (text: string) => text.length > 2 ? 1.6 : 1.2;
+            pendingLabels.sort((a, b) => a.prio - b.prio);
+            const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
+            ctx2.font = "10px 'Roboto Mono', monospace";
+            for (const L of pendingLabels) {
+                if (radarZoom < minZoomFor(L.text)) continue;
+                const w = L.text.length * 6.2 + 4;
+                const h = 12;
+                const x0 = L.x - 2, y0 = L.y - 9, x1 = L.x + w, y1 = L.y + 3;
+                if (x0 < 4 || y0 < 4 || x1 > W - 4 || y1 > H - 4) continue;
+                let clash = false;
+                for (const R of placed) {
+                    if (x0 < R.x1 + 3 && x1 + 3 > R.x0 && y0 < R.y1 + 3 && y1 + 3 > R.y0) { clash = true; break; }
+                }
+                if (clash) continue;
+                placed.push({ x0, y0, x1, y1 });
+                // soft plate under the text so it stays readable over the grid
+                ctx2.fillStyle = "rgba(10,10,16,0.55)";
+                ctx2.fillRect(x0, y0, x1 - x0, y1 - y0);
+                ctx2.fillStyle = L.color;
+                ctx2.fillText(L.text, L.x, L.y);
             }
         }
-        // Cargo traffic: rotated square markers in the ship's hue.
+        // scanned asteroids: ABSTRACT CLUSTERS (user 2026-11-09): the radar
+        // must not show exact rocks — scanned debris is aggregated into
+        // density blobs on a 30 km grid (soft irregular patches whose
+        // brightness grows with the rock count). Never dots, never rings.
+        {
+            const CELL = 30_000;
+            const cells = new Map<string, { cx: number; cy: number; n: number }>();
+            for (const a of universe.asteroids) {
+                if (!a.scanned) continue;
+                const gx = Math.floor(a.pos.x / CELL);
+                const gy = Math.floor(a.pos.y / CELL);
+                const key = gx + "," + gy;
+                const e = cells.get(key);
+                if (e) e.n++;
+                else cells.set(key, { cx: (gx + 0.5) * CELL, cy: (gy + 0.5) * CELL, n: 1 });
+            }
+            for (const e of cells.values()) {
+                const [px, py] = worldToScreen(e.cx, e.cy);
+                if (px < -60 || py < -60 || px > W + 60 || py > H + 60) continue;
+                // far clusters: blurrier + fainter; beyond range — invisible
+                const distCell = Math.hypot(e.cx - shipPos.x, e.cy - shipPos.y);
+                const fade = rangeFade(distCell);
+                if (fade <= 0.02) continue;
+                const n = Math.min(12, e.n);
+                const R = Math.max(16, Math.min(64, 14000 * scale + Math.sqrt(n) * 4)) + Math.min(18, distCell / 20000);
+                const alpha = (0.05 + Math.min(0.14, n * 0.014)) * fade;
+                for (let i = 0; i < 3; i++) {
+                    const [jx, jy] = jitter2(e.cx / 1000 + i * 31);
+                    ctx2.fillStyle = "rgba(130,120,110," + alpha + ")";
+                    ctx2.beginPath();
+                    ctx2.arc(px + jx * R * 0.28, py + jy * R * 0.28, R * (1 - i * 0.18), 0, PI * 2);
+                    ctx2.fill();
+                }
+            }
+        }
         for (const cargo of universe.cargoShips) {
             if (!cargo.scanned) continue;
-            const px = (cargo.pos.x - star.pos.x) * scale;
-            const py = (cargo.pos.y - star.pos.y) * scale;
+            const dist = Math.hypot(cargo.pos.x - shipPos.x, cargo.pos.y - shipPos.y);
+            const fade = rangeFade(dist);
+            if (fade <= 0.02) continue;
+            ctx2.globalAlpha = fade;
+            const [px, py] = worldToScreen(cargo.pos.x, cargo.pos.y);
+            drawContact(px, py, cargo.id, Math.max(12, Math.min(36, 6000 * scale + Math.min(8, dist / 30000))), cargo.hue, "rgba(80,80,105,0.07)");
             ctx2.save();
             ctx2.translate(px, py);
             ctx2.rotate(Math.PI / 4);
             ctx2.fillStyle = cargo.hue;
             ctx2.fillRect(-3.4, -3.4, 6.8, 6.8);
             ctx2.restore();
+            ctx2.globalAlpha = 1;
+        }
+        // route nodes: markers + connecting line (map image of the world line)
+        if (universe.routeNodes.length > 0) {
+            const routeCol = universe.routePhase === "stopped" ? "232,72,56" : "110,200,130";
+            ctx2.strokeStyle = "rgba(" + routeCol + ",0.5)";
+            ctx2.lineWidth = 1.6;
+            ctx2.setLineDash([5, 4]);
+            ctx2.beginPath();
+            const [shx, shy] = worldToScreen(universe.ship.pos.x, universe.ship.pos.y);
+            ctx2.moveTo(shx, shy);
+            for (let i = universe.routeNodeIdx; i < universe.routeNodes.length; i++) {
+                const n = universe.routeNodes[i];
+                const [nx2, ny2] = worldToScreen(n.x, n.y);
+                ctx2.lineTo(nx2, ny2);
+            }
+            ctx2.stroke();
+            ctx2.setLineDash([]);
+            for (let i = universe.routeNodeIdx; i < universe.routeNodes.length; i++) {
+                const n = universe.routeNodes[i];
+                const [nx2, ny2] = worldToScreen(n.x, n.y);
+                ctx2.strokeStyle = "rgba(" + routeCol + (i === universe.routeNodeIdx ? ",0.9)" : ",0.5)");
+                ctx2.lineWidth = 1.4;
+                ctx2.beginPath();
+                ctx2.arc(nx2, ny2, 5, 0, PI * 2);
+                ctx2.stroke();
+            }
         }
         // ship marker: arrow + velocity vector
-        const sx = (universe.ship.pos.x - star.pos.x) * scale;
-        const sy = (universe.ship.pos.y - star.pos.y) * scale;
-        ctx2.translate(sx, sy);
+        const [sx2, sy2] = worldToScreen(universe.ship.pos.x, universe.ship.pos.y);
+        ctx2.translate(sx2, sy2);
         ctx2.rotate(universe.ship.angle);
         ctx2.fillStyle = "#B7B7FF";
         ctx2.beginPath();
@@ -1093,7 +1326,6 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         ctx2.closePath();
         ctx2.fill();
         ctx2.rotate(-universe.ship.angle);
-        const vmag = universe.ship.velocity.mag() / 1000; // scale: 1000 m/s → 1 px per scale unit
         ctx2.strokeStyle = "rgba(183,183,255,0.6)";
         ctx2.lineWidth = 1.4;
         ctx2.beginPath();
@@ -1102,26 +1334,118 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         ctx2.stroke();
         ctx2.restore();
     }
+    /** Radar pan/zoom is world-anchored: base scale from the system span. */
+    let radarZoom = 1;
+    let radarPanX = 0;
+    let radarPanY = 0;
+    function radarBaseScale(): number {
+        const star = universe.star;
+        const maxOrbit = Math.max(
+            ...universe.planets.map(p => p.pos.distance(star.pos)),
+            UniverseConst.PLANET_ORBIT_RANGE_MIN * 1.2,
+        );
+        return ((radarCanvas?.width ?? 560) * 0.44) / maxOrbit;
+    }
 
-    // ===== Route autopilot (user 2026-11-09) =====
-    // Simple A→B pilot with auto-boost; stops on threats and waits for the
-    // player to steer back on course. Route targets are picked on the radar
-    // map (main.ts resolves clicks → setRouteTargetById).
+    // ===== Route autopilot (user 2026-11-09 v2) =====
+    // Multi-waypoint route ("маршрут из узлов") built on the radar map:
+    // ADD NODE → click anywhere → node; DELETE LAST; CLEAR ALL; GO.
+    // The pilot flies through nodes WITHOUT stopping (pure pursuit with
+    // turn anticipation — inertia drifts the pass slightly off-node, by
+    // design), and at the FINAL node brakes to a full stop. Boost engages
+    // only when the player could cast it manually (speed ≥ cruise cap).
+    // Threats anywhere on the course stop the pilot and turn the line red.
     const routePilot = createRoutePilot();
-    let routeTarget: Planet | null = null;
+    const routeNodeList: Array<{ x: number; y: number; radius: number; bodyId: number | null }> = [];
+    let routeIdx = 0;
     let playerTookControl = false;
     let arrivedClock = 0;
-    function setRouteTargetById(id: number | null) {
-        routeTarget = id === null ? null : (universe.planets.find(p => p.id === id) ?? null);
-        if (routeTarget === null) routePilot.active = false;
-        return routeTarget !== null;
+    let radarPickMode = false;
+    let radarDeleteMode = false;
+
+    function nodeIsFinal(idx: number): boolean { return idx >= routeNodeList.length - 1; }
+    /** Move a body-bound node with its planet (nodes track orbits). */
+    function syncNodePositions() {
+        for (const n of routeNodeList) {
+            if (n.bodyId === null) continue;
+            const p = universe.planets.find(pl => pl.id === n.bodyId);
+            if (p) { n.x = p.pos.x; n.y = p.pos.y; n.radius = p.radius; }
+        }
     }
-    function startRoute() {
-        if (routeTarget === null) return false;
+    function pushNodesToUniverse() {
+        universe.routeNodes = routeNodeList.map(n => ({ x: n.x, y: n.y, radius: n.radius }));
+        universe.routeNodeIdx = routeIdx;
+    }
+    function addRouteNode(x: number, y: number, bodyId: number | null): boolean {
+        if (routeNodeList.length >= 12) return false;
+        // keep nodes inside the system ringfence
+        const R = UniverseConst.UNIVERSE_RANGE;
+        const cx = clamp(x, -R, R);
+        const cy = clamp(y, -R, R);
+        routeNodeList.push({ x: cx, y: cy, radius: bodyRadiusOf(bodyId), bodyId });
+        pushNodesToUniverse();
+        return true;
+    }
+    function bodyRadiusOf(id: number | null): number {
+        if (id === null) return 0; // free node: no surface radius
+        const p = universe.planets.find(pl => pl.id === id);
+        return p ? p.radius : 0;
+    }
+    function deleteLastRouteNode(): boolean {
+        if (routeNodeList.length === 0) return false;
+        routeNodeList.pop();
+        if (routeIdx >= routeNodeList.length) routeIdx = Math.max(0, routeNodeList.length - 1);
+        pushNodesToUniverse();
+        return true;
+    }
+    /**
+     * Click-to-delete (user 2026-11-09 v3): remove the route node under the
+     * radar click (mx/my = canvas px from center). The neighbors chain
+     * directly (1-2-3, delete 2 → 1-3). Returns the removed index or null.
+     */
+    function deleteNodeAt(mx: number, my: number): number | null {
+        if (!radarCanvas || routeNodeList.length === 0) return null;
+        const scale = radarBaseScale() * radarZoom;
+        const star = universe.star;
+        const worldX = star.pos.x + radarPanX + mx / scale;
+        const worldY = star.pos.y + radarPanY + my / scale;
+        let bestIdx = -1;
+        let bestPx = Infinity;
+        for (let i = 0; i < routeNodeList.length; i++) {
+            const n = routeNodeList[i];
+            const dPx = Math.hypot(n.x - worldX, n.y - worldY) * scale;
+            const tolPx = Math.max(16, n.radius * scale * 1.2);
+            if (dPx <= tolPx && dPx < bestPx) { bestPx = dPx; bestIdx = i; }
+        }
+        if (bestIdx < 0) return null;
+        routeNodeList.splice(bestIdx, 1);
+        if (routeIdx > bestIdx) routeIdx -= 1;
+        if (routeIdx >= routeNodeList.length) routeIdx = Math.max(0, routeNodeList.length - 1);
+        pushNodesToUniverse();
+        return bestIdx;
+    }
+    function clearRouteNodes() {
+        routeNodeList.length = 0;
+        routeIdx = 0;
+        pushNodesToUniverse();
+    }
+    function setRouteTargetById(id: number | null) {
+        // legacy/debug API: single-node route to a planet
+        clearRouteNodes();
+        if (id === null) { routePilot.active = false; pushNodesToUniverse(); return false; }
+        const p = universe.planets.find(pl => pl.id === id);
+        if (!p) { pushNodesToUniverse(); return false; }
+        addRouteNode(p.pos.x, p.pos.y, p.id);
+        return true;
+    }
+    function startRoute(): boolean {
+        if (routeNodeList.length === 0) return false;
         playerTookControl = false;
+        routeIdx = 0;
         routePilot.active = true;
         routePilot.phase = "chase";
         arrivedClock = 0;
+        pushNodesToUniverse();
         return true;
     }
     function cancelRoute() {
@@ -1130,34 +1454,56 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         setBoost(false);
         ship.thrust.x = 0;
         ship.thrust.y = 0;
-        routeTarget = null;
-        universe.routeTarget = null;
+        universe.routeNodeIdx = routeIdx;
         universe.routePhase = "off";
     }
+    const PASS_NODE_DIST = 1400; // pass-through radius for intermediate nodes
     function pilotUpdate(dt: number) {
-        if (routePilot.active === false || routeTarget === null) return;
+        if (routePilot.active === false) return;
+        if (routeNodeList.length === 0) { cancelRoute(); return; }
         // player override during flight (not during the threat stop — there
         // the player steering back on course is the designed recovery)
         if (playerTookControl && routePilot.phase !== "stopped") {
             cancelRoute();
             return;
         }
+        syncNodePositions();
+        let cur = routeNodeList[routeIdx];
+        void cur;
+        // advance through intermediate nodes EARLY (pure pursuit): while the
+        // next node is within the anticipation arc, aim at IT instead — the
+        // ship flies through node lines, correcting by inertia (user 2026-
+        // 11-09: he can be dragged off by inertia, so the pilot must correct)
+        let aimIdx = routeIdx;
+        const shipSpd = Math.hypot(ship.velocity.x, ship.velocity.y);
+        const anticipate = clamp(shipSpd * 1.5, 2600, 22000);
+        if (!nodeIsFinal(routeIdx)) {
+            const curD = Math.hypot(cur.x - ship.pos.x, cur.y - ship.pos.y);
+            if (curD < Math.max(PASS_NODE_DIST, anticipate)) {
+                routeIdx += 1;
+                if (routePilot.phase === "brake") routePilot.phase = "chase";
+                cur = routeNodeList[routeIdx];
+                pushNodesToUniverse();
+            }
+        }
+        cur = routeNodeList[routeIdx];
+        const intermediate = !nodeIsFinal(routeIdx);
         const threats: RouteThreat[] = [];
         for (const b of impactBodies()) {
-            if (b === routeTarget) continue;
             threats.push({ x: b.pos.x, y: b.pos.y, vx: b.velocity.x, vy: b.velocity.y, radius: b.radius });
         }
         const intent = pilotStep(
             routePilot,
-            { x: routeTarget.pos.x, y: routeTarget.pos.y, radius: routeTarget.radius, vx: routeTarget.velocity.x, vy: routeTarget.velocity.y },
+            { x: cur.x, y: cur.y, radius: cur.radius },
             threats,
             { x: ship.pos.x, y: ship.pos.y, vx: ship.velocity.x, vy: ship.velocity.y, angle: ship.angle },
             dt,
             ship.profile.engineAccel,
+            { intermediate },
         );
         // steering (pilot owns the nose in chase/brake; player steers in stop)
         if (routePilot.phase !== "stopped") {
-            const bearing = Math.atan2(routeTarget.pos.y - ship.pos.y, routeTarget.pos.x - ship.pos.x);
+            const bearing = Math.atan2(cur.y - ship.pos.y, cur.x - ship.pos.x);
             let err = bearing - ship.angle;
             while (err > PI) err -= PI * 2;
             while (err < -PI) err += PI * 2;
@@ -1166,13 +1512,126 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         }
         ship.thrust.x = intent.thrustX;
         ship.thrust.y = intent.thrustY;
-        setBoost(intent.boost);
-        universe.routeTarget = routeTarget;
+        // boost gate (user 2026-11-09): the pilot may only fire the burner
+        // when the PLAYER could have — at/above the 4000 cruise cap.
+        const speedOK = shipSpd >= UniverseConst.CRAFT_SPEED_LIMIT - 1;
+        setBoost(intent.boost && speedOK);
+        universe.routeNodeIdx = routeIdx;
         universe.routePhase = routePilot.phase;
         if (routePilot.phase === "arrived") {
             arrivedClock += dt;
             if (arrivedClock > 2) { cancelRoute(); }
         } else arrivedClock = 0;
+    }
+
+    /**
+     * Radar click routing (user 2026-11-09): in PICK mode a click adds a
+     * route node (snapping to a planet glyph when close, free point
+     * otherwise); in VIEW mode a click selects a scanned object and
+     * returns its info-card data (unknown objects = "NO DATA").
+     * mx/my: canvas px relative to canvas CENTER (same basis as hitTest).
+     */
+    /** Planet under a radar point (canvas-local, offset from CENTER); 14 px. */
+    function radarHitTestAt(mx: number, my: number): number | null {
+        if (!radarCanvas) return null;
+        const star = universe.star;
+        const scale = radarBaseScale() * radarZoom;
+        let best: { id: number; d: number } | null = null;
+        for (const p of universe.planets) {
+            const px = (p.pos.x - star.pos.x - radarPanX) * scale;
+            const py = (p.pos.y - star.pos.y - radarPanY) * scale;
+            const d = Math.hypot(px - mx, py - my);
+            if (d < 22 && (best === null || d < best.d)) best = { id: p.id, d };
+        }
+        return best === null ? null : best.id;
+    }
+    function radarClick(mx: number, my: number): unknown {
+        if (!radarCanvas) return null;
+        const scale = radarBaseScale() * radarZoom;
+        const star = universe.star;
+        const worldX = star.pos.x + radarPanX + mx / scale;
+        const worldY = star.pos.y + radarPanY + my / scale;
+        if (radarPickMode) {
+            // snap to a planet glyph when the click is close (14 px)
+            const hitId = radarHitTestAt(mx, my);
+            if (hitId !== null) {
+                const p = universe.planets.find(pl => pl.id === hitId);
+                if (p) { addRouteNode(p.pos.x, p.pos.y, p.id); return { added: true, id: hitId }; }
+            }
+            addRouteNode(worldX, worldY, null);
+            return { added: true, id: null };
+        }
+        // view mode: object under the cursor → info card (map px tolerances)
+        const tolPx = 20;
+        let info: { name: string; type: string; rows: Array<[string, string]> } | null = null;
+        // star screen position (world→screen anchors the same as drawRadar)
+        const starSx = -radarPanX * scale;
+        const starSy = -radarPanY * scale;
+        if (Math.hypot(mx - starSx, my - starSy) < Math.max(10, star.radius * scale)) {
+            info = star.scanned ? {
+                name: star.name, type: "STAR · CLASS " + star.cls,
+                rows: [
+                    ["RADIUS", (star.radius / 1000).toFixed(1) + " km"],
+                    ["TEMPERATURE", "—"],   // placeholder (later scan tiers)
+                    ["DANGER", "HIGH"],
+                    ["FLORA", "NONE"],
+                    ["FAUNA", "NONE"],
+                ],
+            } : { name: "?", type: "STAR — UNSCANNED", rows: [["DATA", "SCAN THE STAR FIRST"]] };
+        }
+        if (info === null) {
+            const pid = radarHitTestAt(mx, my);
+            if (pid !== null) {
+                const p = universe.planets.find(pl => pl.id === pid);
+                if (p) {
+                    info = (p.scanned || p.explored) ? {
+                        name: p.name,
+                        type: "PLANET",
+                        rows: [
+                            ["RADIUS", (p.radius / 1000).toFixed(2) + " km"],
+                            ["ATMOSPHERE", p.atmosphere || "—"],
+                            ["TEMPERATURE", "—"], // placeholder (scan tiers later)
+                            ["DANGER", "—"],
+                            ["FLORA", p.flora || "NONE"],
+                            ["FAUNA", p.fauna || "NONE"],
+                        ],
+                    } : { name: "UNKNOWN BODY", type: "UNSCANNED", rows: [["DATA", "SCAN THE AREA FIRST"]] };
+                }
+            }
+        }
+        if (info === null) {
+            // scanned asteroids / cargo within 10 px
+            const tol = tolPx / scale;
+            let best: { type: string; name: string; rows: Array<[string, string]> } | null = null;
+            let bestD = tol;
+            for (const a of universe.asteroids) {
+                if (!a.scanned) continue;
+                const d = Math.hypot(a.pos.x - worldX, a.pos.y - worldY);
+                if (d < bestD) { bestD = d; best = {
+                    name: "ROCK " + a.id, type: "ASTEROID",
+                    rows: [
+                        ["DIAMETER", (a.radius * 2 / 1000).toFixed(2) + " km"],
+                        ["MASS", a.mass.toExponential(1) + " t"],
+                        ["TEMPERATURE", "—"],
+                        ["DANGER", "—"],
+                    ],
+                }; }
+            }
+            for (const cg of universe.cargoShips) {
+                if (!cg.scanned) continue;
+                const d = Math.hypot(cg.pos.x - worldX, cg.pos.y - worldY);
+                if (d < bestD) { bestD = d; best = {
+                    name: "HAULER " + cg.id, type: "CARGO SHIP",
+                    rows: [
+                        ["SIGNATURE", cg.hue === "#D8A84E" ? "AMBER" : "BLUE"],
+                        ["CRUISE", Math.round(cg.cruise) + " m/s"],
+                        ["DANGER", "NONE"],
+                    ],
+                }; }
+            }
+            info = best;
+        }
+        return info;
     }
 
     // Collision warning (user 2026-11-08): Elite-style impact alert. Every
@@ -1186,6 +1645,15 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     const impactHudTime = document.getElementById("impactWarningTime");
     let impactEvalIn = 0; // seconds until the next evaluation (~10 Hz budget)
     let lastFrameMillisImpact = -1;
+    /**
+     * Latched threat (user 2026-11-09): once the gated alert fires, the
+     * warning stays alive while the PHYSICS still predicts the impact —
+     * turning the nose away must not hide a collision the ship is still
+     * flying into. It releases only when TTI/closing say the impact is
+     * gone (miss, separating, out of the clear window, or braked below
+     * the impact floor).
+     */
+    let impactLatched: { pos: Vec2, velocity: Vec2, radius: number } | null = null;
     function updateImpactWarning(millis: number) {
         if (lastFrameMillisImpact >= 0) impactEvalIn -= (millis - lastFrameMillisImpact) / 1000;
         lastFrameMillisImpact = millis;
@@ -1193,7 +1661,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         impactEvalIn = 0.1;
 
         // single pass over all bodies, keep the most urgent gated threat
-        let bestBody: { pos: Vec2, radius: number } | null = null;
+        let bestBody: { pos: Vec2, velocity: Vec2, radius: number } | null = null;
         let bestTti = Infinity;
         let bestLevel: "warning" | "critical" = "warning";
         for (const b of impactBodies()) {
@@ -1220,21 +1688,49 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             }
         }
 
-        if (bestBody === null) {
-            universe.impactThreat = null;
-            if (impactHud && impactHud.classList.contains("active")) impactHud.classList.remove("active");
+        if (bestBody !== null) {
+            // new gated threat: latch it and light the HUD
+            impactLatched = bestBody;
+            universe.impactThreat = {
+                x: bestBody.pos.x, y: bestBody.pos.y,
+                radius: bestBody.radius,
+                tti: bestTti, level: bestLevel,
+            };
+            if (impactHud && impactHudTime) {
+                impactHudTime.textContent = "T−" + bestTti.toFixed(1) + "s";
+                impactHud.classList.toggle("critical", bestLevel === "critical");
+                if (!impactHud.classList.contains("active")) impactHud.classList.add("active");
+            }
             return;
         }
-        universe.impactThreat = {
-            x: bestBody.pos.x, y: bestBody.pos.y,
-            radius: bestBody.radius,
-            tti: bestTti, level: bestLevel,
-        };
-        if (impactHud && impactHudTime) {
-            impactHudTime.textContent = "T−" + bestTti.toFixed(1) + "s";
-            impactHud.classList.toggle("critical", bestLevel === "critical");
-            if (!impactHud.classList.contains("active")) impactHud.classList.add("active");
+        // No NEW gated threat — but a LATCHED one may still be physics-true
+        // (player turned the nose away; the ship is still flying into it).
+        if (impactLatched !== null) {
+            const b = impactLatched;
+            const rx = b.pos.x - ship.pos.x;
+            const ry = b.pos.y - ship.pos.y;
+            const ux = b.velocity.x - ship.velocity.x;
+            const uy = b.velocity.y - ship.velocity.y;
+            const res = timeToImpact(rx, ry, ux, uy, b.radius + ship.radius);
+            if (impactLatchedThreat(res.tti, res.closing)) {
+                const tti = res.tti as number; // narrowing: non-null here
+                const level: "warning" | "critical" = tti <= IMPACT_CRITICAL_SECONDS ? "critical" : "warning";
+                universe.impactThreat = {
+                    x: b.pos.x, y: b.pos.y,
+                    radius: b.radius,
+                    tti, level,
+                };
+                if (impactHud && impactHudTime) {
+                    impactHudTime.textContent = "T−" + tti.toFixed(1) + "s";
+                    impactHud.classList.toggle("critical", level === "critical");
+                    if (!impactHud.classList.contains("active")) impactHud.classList.add("active");
+                }
+                return;
+            }
+            impactLatched = null; // physics says the impact is gone
         }
+        universe.impactThreat = null;
+        if (impactHud && impactHud.classList.contains("active")) impactHud.classList.remove("active");
     }
 
     /** Broad candidates: star + planets + asteroids (one array, reused). */
@@ -1245,6 +1741,30 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         for (const p of universe.planets) impactBodyScratch.push(p);
         for (const a of universe.asteroids) impactBodyScratch.push(a);
         return impactBodyScratch;
+    }
+
+    // Heat warning HUD (user 2026-11-09): one-shot approach warning, then a
+    // live countdown while inside the hot zone. Both only at the TOP.
+    const heatBanner = document.getElementById("heatBanner");
+    const heatBannerText = document.getElementById("heatBannerText");
+    const heatBannerTime = document.getElementById("heatBannerTime");
+    function updateHeatHud() {
+        if (!heatBanner || !heatBannerText) return;
+        const cd = universe.starCountdown;
+        const prox = universe.starProximity;
+        if (cd !== null) {
+            if (!heatBanner.classList.contains("active")) heatBanner.classList.add("active");
+            if (!heatBanner.classList.contains("critical")) heatBanner.classList.add("critical");
+            heatBannerText.textContent = "TEMPERATURE CRITICAL — LEAVE THE ZONE";
+            if (heatBannerTime) heatBannerTime.textContent = "T−" + Math.max(0, cd).toFixed(1) + "s";
+        } else if (prox >= 0.25) {
+            if (!heatBanner.classList.contains("active")) heatBanner.classList.add("active");
+            heatBanner.classList.remove("critical");
+            heatBannerText.textContent = "TEMPERATURE RISING NEAR CRITICAL";
+            if (heatBannerTime) heatBannerTime.textContent = "";
+        } else {
+            heatBanner.classList.remove("active", "critical");
+        }
     }
 
     // Debug/testing hook (debug-only, #debug=1): exposes entity layout so
@@ -1283,10 +1803,18 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             liveSparks: universe.countLiveSparksPublic(),
             scan: { cooldown: universe.scan.cooldown, waveAge: universe.scan.waveAge },
             scannedCount: universe.planets.filter(p => p.scanned).length,
+            scannedAsteroids: universe.asteroids.filter(a => a.scanned).length,
+            starScanned: universe.star.scanned,
+            starHeat: { proximity: universe.starProximity, countdown: universe.starCountdown, hot: universe.starHot },
             cargoCount: universe.cargoShips.length,
             scannedCargo: universe.cargoShips.filter(c => c.scanned).length,
             cargo: universe.cargoShips.map(c => ({ id: c.id, x: c.pos.x, y: c.pos.y, angle: c.angle, t: c.t, dir: c.dir })),
-            route: routeTarget === null ? null : { id: routeTarget.id, active: routePilot.active, phase: routePilot.phase },
+            route: {
+                nodes: routeNodeList.map(n => ({ x: Math.round(n.x), y: Math.round(n.y), bodyId: n.bodyId })),
+                idx: routeIdx,
+                active: routePilot.active,
+                phase: routePilot.phase,
+            },
         };
     }
 
@@ -1316,6 +1844,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             pilotUpdate(universe.dt);
             universe.simulateFrame(millis);
             updateImpactWarning(millis);
+            updateHeatHud();
             space(context, helper);
             flightStickDraw(context, helper);
             telemetry(millis);
@@ -1334,26 +1863,53 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         setRouteTargetById,
         startRoute,
         cancelRoute,
-        routeInfo: () => routeTarget === null ? null : {
-            id: routeTarget.id,
+        deleteLastNode: deleteLastRouteNode,
+        clearRoute: () => { clearRouteNodes(); cancelRoute(); },
+        setRadarPickMode: (v: boolean) => { radarPickMode = v; },
+        radarIsPickMode: () => radarPickMode,
+        setRadarDeleteMode: (v: boolean) => { radarDeleteMode = v; },
+        radarIsDeleteMode: () => radarDeleteMode,
+        /** Click-to-delete: remove the node under a radar point (px from center). */
+        deleteNodeAt: (mx: number, my: number) => deleteNodeAt(mx, my),
+        /** Radar click (canvas-local offsets from center): pick/info routing. */
+        radarClick: (mx: number, my: number) => radarClick(mx, my),
+        /** Anchored zoom (cx/cy = canvas px from center stay on the same world point). */
+        radarZoomBy: (factor: number, cx: number, cy: number) => {
+            if (!radarCanvas) return;
+            const oldScale = radarBaseScale() * radarZoom;
+            const star = universe.star;
+            const wx = star.pos.x + radarPanX + cx / oldScale;
+            const wy = star.pos.y + radarPanY + cy / oldScale;
+            radarZoom = clamp(radarZoom * factor, 1, 60);
+            const newScale = radarBaseScale() * radarZoom;
+            radarPanX = wx - star.pos.x - cx / newScale;
+            radarPanY = wy - star.pos.y - cy / newScale;
+        },
+        radarPanBy: (dxPx: number, dyPx: number) => {
+            const s = radarBaseScale() * radarZoom;
+            // drag-following (user 2026-11-09): dragging the pointer right
+            // moves the MAP right with the pointer (content follows finger).
+            radarPanX -= dxPx / s;
+            radarPanY -= dyPx / s;
+        },
+        radarResetView: () => { radarZoom = 1; radarPanX = 0; radarPanY = 0; },
+        routeInfo: () => ({
+            nodes: routeNodeList.map(n => ({ x: Math.round(n.x), y: Math.round(n.y), bodyId: n.bodyId })),
+            idx: routeIdx,
             active: routePilot.active,
             phase: routePilot.phase,
-        },
+        }),
         /** Radar hit-test for route picking (canvas-local offsets from center). */
         radarHitTest: (mx: number, my: number): number | null => {
             if (!radarCanvas) return null;
             const star = universe.star;
-            const maxOrbit = Math.max(
-                ...universe.planets.map(p => p.pos.distance(star.pos)),
-                UniverseConst.PLANET_ORBIT_RANGE_MIN * 1.2,
-            );
-            const scale = (radarCanvas.width * 0.44) / maxOrbit;
+            const scale = radarBaseScale() * radarZoom;
             let best: { id: number; d: number } | null = null;
             for (const p of universe.planets) {
-                const px = (p.pos.x - star.pos.x) * scale;
-                const py = (p.pos.y - star.pos.y) * scale;
+                const px = (p.pos.x - star.pos.x - radarPanX) * scale;
+                const py = (p.pos.y - star.pos.y - radarPanY) * scale;
                 const d = Math.hypot(px - mx, py - my);
-                if (d < 14 && (best === null || d < best.d)) best = { id: p.id, d };
+                if (d < 22 && (best === null || d < best.d)) best = { id: p.id, d };
             }
             return best === null ? null : best.id;
         },

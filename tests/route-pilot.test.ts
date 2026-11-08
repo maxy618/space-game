@@ -17,6 +17,20 @@ describe("route pilot", () => {
         expect(intent.boost).toBe(true);
     });
 
+    it("intermediate: pursuit boost engages when far and roughly aligned", () => {
+        const s = createRoutePilot();
+        s.active = true;
+        const intent = pilotStep(
+            s, TARGET, [],
+            { x: 0, y: 0, vx: 4000, vy: 0, angle: 0 },
+            0.016, 1000,
+            { intermediate: true },
+        );
+        expect(s.phase).toBe("chase");
+        expect(intent.boost).toBe(true);
+        expect(intent.thrustX).toBeCloseTo(1, 3);
+    });
+
     it("brake: inside the braking window the pilot thrusts retrograde", () => {
         const s = createRoutePilot();
         s.active = true;

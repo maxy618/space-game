@@ -100,6 +100,19 @@ export function impactGatesPass(g: ImpactGateInput): boolean {
     return true;
 }
 
+/**
+ * Latched-warning persistence (user 2026-11-09): once a gated warning
+ * fires, it must NOT die because the player turns the nose away. The ship
+ * is still flying into the body — the prediction is pure physics (TTI and
+ * closing speed), not heading. The latch releases only when the physics
+ * itself says the impact is gone: no positive-TTI root (miss/separating),
+ * TTI beyond the clear window, or closing speed below the impact floor
+ * (e.g. the player braked into a landing approach).
+ */
+export function impactLatchedThreat(tti: number | null, closing: number): boolean {
+    return tti !== null && tti <= IMPACT_CLEAR_SECONDS && closing >= IMPACT_MIN_CLOSING;
+}
+
 /** Warning urgency state for the HUD. */
 export type ImpactLevel = "none" | "warning" | "critical";
 

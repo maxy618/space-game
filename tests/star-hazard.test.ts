@@ -37,14 +37,20 @@ describe("starHeatStep (pure model)", () => {
         expect(r.heat).toBe(1);
     });
 
-    it("destroys when heat reaches critical after sustained corona exposure", () => {
+    it("destroys by COUNTDOWN EXPIRY after sustained hot-zone exposure (min 8 s)", () => {
         const R = 1_000; // small star: tight zone, dive deep and hold
         const kill = R * STAR_KILL_FACTOR;
-        let heat = 0;
+        let countdown: number | null = null;
         let destroyed = false;
-        for (let i = 0; i < 400; i++) {
-            const r = starHeatStep(heat, kill + 5, R, 0.016); // hover near the boundary
-            heat = r.heat;
+        // hovering deep in the hot zone: countdown must start at >= 8 s and
+        // the ship must die once it runs out (old "heat>=1" model is gone;
+        // heat still accumulates for the vignette, but death is by timer)
+        for (let i = 0; i < 1200; i++) {
+            const r = starHeatStep(0, kill + 5, R, 0.016, 1, 1, countdown);
+            if (countdown === null && r.countdown !== null) {
+                expect(r.countdown).toBeGreaterThanOrEqual(8); // hot-zone floor
+            }
+            countdown = r.countdown;
             if (r.destroy) { destroyed = true; break; }
         }
         expect(destroyed).toBe(true);

@@ -140,7 +140,7 @@
       opacity: 0.38;
       cursor: not-allowed;
     }
-    #boostButton svg { display: block; width: 40px; height: 40px; }
+    #boostButton svg { display: block; width: 46px; height: 46px; }
 
     /* Boost burner screen glow (user 2026-11-08, reworked 2026-11-09):
        a DYNAMIC flame-light rim in the burner's own color — no neon bar,
@@ -273,7 +273,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(10, 10, 16, 0.55);
+      background: rgba(4, 5, 8, 0.86);
       backdrop-filter: blur(6px);
       -webkit-backdrop-filter: blur(6px);
       z-index: 45;
@@ -296,7 +296,217 @@
       background: rgba(22, 22, 29, 0.9);
       border: 1px solid var(--color-Eigengrau3);
       border-radius: 18px;
+      cursor: crosshair;
+      touch-action: none;
     }
+    /* Radar close ✕ (user 2026-11-09 v2, refined: TOP-RIGHT, directly ABOVE
+       the map square itself). THE only way to close the radar. */
+    #radarClose {
+      position: absolute;
+      /* canvas top-right corner: card is min(92vmin,560px) centered */
+      top: calc(50% - min(46vmin, 280px) - 46px);
+      right: calc(50% - min(46vmin, 280px) + 4px);
+      width: 42px;
+      height: 42px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(22, 22, 29, 0.92);
+      border: 1px solid var(--color-Eigengrau3);
+      border-radius: 12px;
+      cursor: pointer;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.22s ease, visibility 0s 0.22s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #radarOverlay.open #radarClose {
+      opacity: 1;
+      visibility: visible;
+      transition: opacity 0.22s ease;
+    }
+    #radarClose:active {
+      transform: translateY(1px);
+      background: rgba(60, 60, 76, 0.9);
+    }
+    #radarClose svg { display: block; }
+    /* Route bar: FOUR IDENTICAL SQUARE BUTTONS (user 2026-11-09 criterion):
+       same size/border/typography; SVG icons only — no emoji/pictographs. */
+    #routeBar {
+      position: absolute;
+      bottom: 26px;
+      display: flex;
+      gap: 12px;
+    }
+    .radar-square-btn {
+      width: 56px;
+      height: 56px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(22, 22, 29, 0.92);
+      border: 1px solid var(--color-Eigengrau3);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .radar-square-btn:active {
+      transform: translateY(1px);
+      background: rgba(60, 60, 76, 0.9);
+    }
+    .radar-square-btn[disabled] {
+      opacity: 0.4;
+      cursor: default;
+    }
+    .radar-square-btn.mode-on {
+      border-color: var(--color-Autopilot);
+      background: rgba(30, 30, 44, 0.95);
+      box-shadow: 0 0 0 2px rgba(183, 183, 255, 0.35), 0 0 18px rgba(183, 183, 255, 0.22);
+      animation: modePulse 1.1s ease-in-out infinite;
+    }
+    .radar-square-btn.mode-on.del-mode {
+      border-color: #E8785A;
+      background: rgba(44, 30, 30, 0.95);
+      box-shadow: 0 0 0 2px rgba(232, 120, 90, 0.4), 0 0 18px rgba(232, 120, 90, 0.25);
+    }
+    @keyframes modePulse {
+      0%, 100% { box-shadow: 0 0 0 2px rgba(183, 183, 255, 0.35), 0 0 18px rgba(183, 183, 255, 0.22); }
+      50% { box-shadow: 0 0 0 2px rgba(183, 183, 255, 0.65), 0 0 26px rgba(183, 183, 255, 0.4); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .radar-square-btn.mode-on { animation: none; }
+    }
+    .radar-square-btn.cancel-btn {
+      border-color: #6E4E4E;
+      background: rgba(44, 30, 30, 0.92);
+    }
+    .radar-square-btn.cancel-btn:active {
+      background: rgba(70, 44, 40, 0.95);
+      border-color: #a53a2a;
+    }
+    .radar-square-btn.go-btn {
+      border-color: #4E9E5F;
+      background: rgba(30, 44, 34, 0.92);
+    }
+    .radar-square-btn svg { display: block; }
+    /* Scan hint / result banners: top-center console strips. */
+    #scanHint, #scanResult, #heatBanner {
+      position: fixed;
+      top: calc(14px + var(--safe-top));
+      left: 50%;
+      transform: translateX(-50%) translateY(-6px);
+      padding: 8px 16px;
+      font-family: "Roboto Mono", monospace;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      color: var(--color-Console);
+      background: rgba(22, 22, 29, 0.88);
+      border: 1px solid var(--color-Eigengrau3);
+      border-radius: 10px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.22s ease, transform 0.22s ease;
+      z-index: 42;
+      white-space: nowrap;
+    }
+    #scanHint.active, #scanResult.active {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    #scanHint { color: #D8A84E; }
+    #scanResult { color: #9ED8A4; }
+    #scanResult small { color: var(--color-Eigengrau4); }
+    /* Stellar heat banner: amber approach warning; red + T− clock when the
+       hot-zone countdown runs. */
+    #heatBanner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #D8A84E;
+      border-color: #8a6a2e;
+    }
+    #heatBanner.active {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    #heatBanner.critical {
+      color: #FF6E5A;
+      border-color: #a53a2a;
+      background: rgba(44, 22, 19, 0.9);
+      animation: heatPulse 1.1s ease-in-out infinite;
+    }
+    #heatBannerTime { font-weight: bold; }
+    @keyframes heatPulse {
+      0%, 100% { border-color: #a53a2a; }
+      50% { border-color: #ff9a86; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #heatBanner.critical { animation: none; }
+    }
+    /* Object info card (user 2026-11-09): click a scanned body on the map →
+       bottom-left console card with type / temperature / hazard / lifeforms. */
+    #objectInfo {
+      position: fixed;
+      left: 14px;
+      bottom: calc(14px + var(--safe-bottom));
+      min-width: 218px;
+      max-width: 300px;
+      padding: 12px 14px;
+      font-family: "Roboto Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      color: var(--color-Console);
+      background: rgba(22, 22, 29, 0.92);
+      border: 1px solid var(--color-Eigengrau3);
+      border-radius: 10px;
+      z-index: 46;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    #objectInfo.active {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+    #objectInfoTitle {
+      color: #B7B7FF;
+      font-size: 12px;
+      margin-bottom: 2px;
+    }
+    #objectInfoType {
+      color: var(--color-Eigengrau4);
+      margin-bottom: 8px;
+    }
+    #objectInfoRows div {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 2px 0;
+      border-top: 1px solid rgba(60, 60, 76, 0.35);
+    }
+    #objectInfoRows dt { color: var(--color-Eigengrau4); }
+    #objectInfoRows dd { margin: 0; color: var(--color-Console); }
+    #objectInfoClose {
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      background: transparent;
+      color: var(--color-Eigengrau4);
+      cursor: pointer;
+      font-family: "Roboto Mono", monospace;
+      font-size: 13px;
+      line-height: 1;
+    }
+    #objectInfoClose:hover { color: var(--color-Console); }
     #radarTitle {
       position: absolute;
       top: calc(18px + var(--safe-top));
@@ -573,16 +783,14 @@
       Pause
     </label>
     <button id="speedButton">1x</button>
-    <button id="autoPilotDebugButton" class="autopilot-button">A</button>
   </div>
 
   <div id="loading" class="loading">Loading...</div>
 
-  <!-- Player pause button: bespoke SVG (rounded bars ringed by a negative-
-       space orbit arc — original geometry, no icon packs). -->
+  <!-- Player pause button: two rounded bars only — the orbit ring is gone,
+       leaving just the square button itself (user 2026-11-09). -->
   <button id="pauseButton" type="button" aria-label="Pause">
     <svg width="28" height="28" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <circle cx="11" cy="11" r="10.2" fill="none" stroke="#3C3C4C" stroke-width="1.4" stroke-dasharray="3.2 2.6" stroke-linecap="round"/>
       <rect x="6.6" y="5.4" width="3.2" height="11.2" rx="1.6" fill="#B7B7FF" />
       <rect x="12.2" y="5.4" width="3.2" height="11.2" rx="1.6" fill="#B7B7FF" />
     </svg>
@@ -594,7 +802,8 @@
   <button id="boostButton" type="button" aria-label="Boost">
     <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d="M12 21 C9.5 18.5 9 15.5 11.1 13 C10.2 13.6 8.6 13.4 7.9 12.3 C6.4 9.9 8.4 6.6 9.9 4.2 C10.6 6 12 7 13 6.4 C14.2 5.6 13.8 3.8 14 2.2 C16.2 4.3 18 7 17.9 11 C17.8 15.4 14.6 19.4 12 21 Z" fill="#B7B7FF" stroke="#3C3C4C" stroke-width="1.3" stroke-linejoin="round"/>
-      <path d="M12 19 C10.8 17.4 10.6 15.4 12 13.6 C13.4 15.4 13.2 17.4 12 19 Z" fill="#16161D"/>
+      <path d="M12 18.7 C10.9 17.1 11 15.1 12.2 13.3 C13.5 15.1 13.3 17.1 12 18.7 Z" fill="#16161D"/>
+      <path d="M8.8 21.3 Q12 23.5 15.2 21.3" fill="none" stroke="#8F8FD8" stroke-width="1.5" stroke-linecap="round"/>
     </svg>
   </button>
 
@@ -604,14 +813,16 @@
       <circle cx="12" cy="12" r="3" fill="#B7B7FF"/>
       <path d="M12 5.6 A6.4 6.4 0 0 1 18.4 12" fill="none" stroke="#B7B7FF" stroke-width="1.6" stroke-linecap="round"/>
       <path d="M12 2.4 A9.6 9.6 0 0 1 21.6 12" fill="none" stroke="#7A7A9E" stroke-width="1.4" stroke-linecap="round"/>
-      <path d="M12 18.4 A6.4 6.4 0 0 1 5.6 12" fill="none" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
-      <path d="M12 21.6 A9.6 9.6 0 0 1 2.4 12" fill="none" stroke="#3C3C4C" stroke-width="1.4" stroke-linecap="round"/>
+      <path d="M12 18.4 A6.4 6.4 0 0 1 5.6 12" fill="none" stroke="#B7B7FF" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M12 21.6 A9.6 9.6 0 0 1 2.4 12" fill="none" stroke="#7A7A9E" stroke-width="1.4" stroke-linecap="round"/>
     </svg>
   </button>
 
-  <!-- Radar / system map (above scan): schematic system view. -->
+  <!-- Radar / system map (above scan): schematic system view. The radar IS
+       the autopilot map now — the old autopilot button under pause is gone
+       (user 2026-11-09: two autopilots → one). -->
   <button id="radarButton" type="button" aria-label="Radar">
-    <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg width="30" height="30" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <circle cx="12" cy="12" r="9" fill="none" stroke="#3C3C4C" stroke-width="1.4"/>
       <circle cx="12" cy="12" r="5.4" fill="none" stroke="#7A7A9E" stroke-width="1.3"/>
       <circle cx="12" cy="12" r="1.8" fill="#B7B7FF"/>
@@ -620,26 +831,90 @@
     </svg>
   </button>
 
-  <!-- Autopilot (under pause): opens the map in route mode. -->
-  <button id="autoPilotButton" type="button" aria-label="Autopilot">
-    <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <circle cx="12" cy="12" r="2.2" fill="#B7B7FF"/>
-      <circle cx="12" cy="12" r="6.6" fill="none" stroke="#7A7A9E" stroke-width="1.3" stroke-dasharray="2.6 2.6"/>
-      <circle cx="12" cy="12" r="10" fill="none" stroke="#3C3C4C" stroke-width="1.2" stroke-dasharray="1.8 3"/>
-      <path d="M12 2.6 L14 5.2 L12 4.4 L10 5.2 Z" fill="#B7B7FF"/>
-    </svg>
-  </button>
-
-  <!-- Radar / system map overlay: schematic view, shared with autopilot. -->
+  <!-- Radar / system map overlay: schematic view, shared with autopilot.
+       Closes ONLY via the ✕ button above the map's top-right corner. -->
   <div id="radarOverlay" role="dialog" aria-label="System radar">
     <div id="radarTitle">SYSTEM RADAR</div>
     <canvas id="radarCanvas" width="560" height="560"></canvas>
-    <!-- Autopilot route bar (hidden until a target is picked on the map). -->
-    <div id="routeBar" style="position:absolute; bottom:26px; display:flex; gap:12px;">
-      <button id="routeAdd" type="button" style="padding:10px 18px; font-family:'Roboto Mono',monospace; font-size:13px; letter-spacing:0.08em; color:#B7B7FF; background:rgba(22,22,29,0.9); border:1px solid var(--color-Eigengrau3); border-radius:10px; cursor:pointer;">ADD ROUTE</button>
-      <button id="routeGo" type="button" style="padding:10px 18px; font-family:'Roboto Mono',monospace; font-size:13px; letter-spacing:0.08em; color:#9ED8A4; background:rgba(30,44,34,0.9); border:1px solid #4E9E5F; border-radius:10px; cursor:pointer;">GO</button>
-      <button id="routeCancel" type="button" style="padding:10px 18px; font-family:'Roboto Mono',monospace; font-size:13px; letter-spacing:0.08em; color:#C88; background:rgba(44,30,30,0.9); border:1px solid #6E4E4E; border-radius:10px; cursor:pointer;">CANCEL</button>
+    <!-- close ✕ above the card's top-right corner -->
+    <button id="radarClose" type="button" aria-label="Close radar">
+      <svg width="18" height="18" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <line x1="4" y1="4" x2="16" y2="16" stroke="#C6C6E8" stroke-width="1.8" stroke-linecap="round"/>
+        <line x1="16" y1="4" x2="4" y2="16" stroke="#C6C6E8" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <!-- Route bar (user 2026-11-09 v3): FOUR identical square buttons —
+         ADD node (pick mode) / DELETE node (click-to-delete mode) /
+         CANCEL route (clear all, RED) / GO (launch, GREEN). The + and −
+         node icons are twin crosshairs differing only in the center mark. -->
+    <div id="routeBar">
+      <button id="routeAdd" class="radar-square-btn" type="button" aria-label="Add route node">
+        <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="10.4" cy="10.4" r="7.4" fill="none" stroke="#7A7A9E" stroke-width="1.4"/>
+          <circle cx="10.4" cy="10.4" r="2" fill="#B7B7FF"/>
+          <line x1="10.4" y1="1.6" x2="10.4" y2="6.4" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="10.4" y1="14.4" x2="10.4" y2="19.2" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="1.6" y1="10.4" x2="6.4" y2="10.4" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="14.4" y1="10.4" x2="19.2" y2="10.4" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="18.6" y1="21.4" x2="18.6" y2="15.8" stroke="#B7B7FF" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="15.8" y1="18.6" x2="21.4" y2="18.6" stroke="#B7B7FF" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button id="routeDel" class="radar-square-btn" type="button" aria-label="Delete node by click">
+        <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="10.4" cy="10.4" r="7.4" fill="none" stroke="#7A7A9E" stroke-width="1.4"/>
+          <circle cx="10.4" cy="10.4" r="2" fill="#B7B7FF"/>
+          <line x1="10.4" y1="1.6" x2="10.4" y2="6.4" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="10.4" y1="14.4" x2="10.4" y2="19.2" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="1.6" y1="10.4" x2="6.4" y2="10.4" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="14.4" y1="10.4" x2="19.2" y2="10.4" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="15.8" y1="18.6" x2="21.4" y2="18.6" stroke="#B7B7FF" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button id="routeClear" class="radar-square-btn cancel-btn" type="button" aria-label="Cancel route, clear all">
+        <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" fill="none" stroke="#a53a2a" stroke-width="1.4"/>
+          <line x1="8.6" y1="8.6" x2="15.4" y2="15.4" stroke="#E8785A" stroke-width="2" stroke-linecap="round"/>
+          <line x1="15.4" y1="8.6" x2="8.6" y2="15.4" stroke="#E8785A" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button id="routeGo" class="radar-square-btn go-btn" type="button" aria-label="Launch route">
+        <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" fill="none" stroke="#4E9E5F" stroke-width="1.4"/>
+          <path d="M9 7.2 L17 12 L9 16.8 Z" fill="#9ED8A4"/>
+        </svg>
+      </button>
     </div>
+  </div>
+
+  <!-- Radar close ✕: THE only close affordance, sits LEFT of pause. -->
+  <button id="radarClose" type="button" aria-label="Close radar">
+    <svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <line x1="4" y1="4" x2="16" y2="16" stroke="#C6C6E8" stroke-width="1.8" stroke-linecap="round"/>
+      <line x1="16" y1="4" x2="4" y2="16" stroke="#C6C6E8" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>
+  </button>
+
+  <!-- Scan feedback banners (top-center console strips). -->
+  <div id="scanHint">SIGNAL TOO WEAK — SLOW BELOW <span id="scanHintNum">500</span> m/s</div>
+  <div id="scanResult"></div>
+
+  <!-- Stellar heat banner (amber warning → red countdown, driven per frame). -->
+  <div id="heatBanner" role="alert" aria-live="assertive">
+    <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M8 1.4 C9.6 3.4 11 5 11 8.2 A3 3 0 0 1 5 8.2 C5 6.6 6 6 6.4 4.4 C7.2 5.2 7.8 5.4 8.2 4.6 C8.6 3.6 8.2 2.6 8 1.4 Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+      <line x1="4" y1="13.4" x2="12" y2="13.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+    </svg>
+    <span id="heatBannerText"></span>
+    <span id="heatBannerTime"></span>
+  </div>
+
+  <!-- Object info card: click a body on the radar map. -->
+  <div id="objectInfo" role="status">
+    <button id="objectInfoClose" type="button" aria-label="Close info">✕</button>
+    <div id="objectInfoTitle">?</div>
+    <div id="objectInfoType">?</div>
+    <dl id="objectInfoRows"></dl>
   </div>
 
   <div id="pauseMenu" hidden>

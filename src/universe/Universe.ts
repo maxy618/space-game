@@ -92,8 +92,15 @@ export const enum UniverseConst {
     // (close flybys bend the trajectory), while asteroids keep the original
     // Keplerian calibration so belts and orbits are unchanged.
     SHIP_GRAVITY_MULTIPLIER = 4,
+    /**
+     * Wish 43 (user 2026-11-09): engines ALWAYS let you climb out of a well.
+     * Gravity accel is capped at this fraction of the ship's engine accel, so
+     * a straight full-thrust escape is physically possible from anywhere —
+     * the pull is still strongly felt, it just stays counterable.
+     */
+    GRAVITY_THRUST_FRACTION = 0.55,
     MAIN_ENGINE_ACCEL = 1000, // thrust effect, pixels per second squared
-    LAUNCH_MECO = 2 // how long to suspend gravity when launching
+    LAUNCH_MECO = 0.6 // how long to suspend gravity when launching (prevents an instant re-land while lifting off)
 }
 
 export const SCALED_THRUST = true;
@@ -198,6 +205,8 @@ function starColor(cls: StarClass): string {
 export class Star extends Planet {
     readonly cls: StarClass;
     radius!: number;
+    /** The star's class/name is only known after a scan (user 2026-11-09). */
+    scanned = false;
     constructor(cls: StarClass, radius: number) {
         super(Vec2.Zero(), radius, Vec2.Zero(), 0, starColor(cls));
         this.cls = cls;
@@ -218,6 +227,8 @@ export class Asteroid extends Body {
     spin = 0;
     /** Regular 9-vertex polygon radii (×radius), shared physics/render. */
     radii: number[] = [];
+    /** Revealed by the scanner (radar/info visibility). */
+    scanned = false;
     constructor(radius: number) {
         super();
         this.radius = radius;
@@ -398,10 +409,25 @@ export class Universe extends Simulator {
             ) { // within MECO sec of launch, no gravity at all
                 // simulate gravity: $ f_g = G * m1 * m2 * 1/d^2 $
                 // (× SHIP_GRAVITY_MULTIPLIER — ship-only, see UniverseConst)
+                // (user 2026-11-09: near-field boost — close to a body the
+                // pull grows beyond 1/d² so proximity is FELT; scale-in
+                // over the innermost few radii keeps it smooth)
+                const closeR = planet instanceof Star ? planet.radius * 6 : planet.radius * 3;
+                const k = clamp(1 - d / Math.max(1, closeR), 0, 1);
+                const nearBoost = 1 + (planet instanceof Star ? 4 : 1.5) * k;
+                // user 2026-11-09 (wish 43): engines ALWAYS let you climb out
+                // — gravity may never exceed a fraction of full thrust, so a
+                // straight escape burn is physically possible from anywhere.
+                // The pull still ramps hard near the surface, it just stops
+                // growing past the thrust fraction instead of swallowing the
+                // ship with no counterplay.
+                const gAccel = UniverseConst.GRAVITATION * UniverseConst.SHIP_GRAVITY_MULTIPLIER * nearBoost * (this.ship.mass * planet.mass) / (d * d);
+                const gCap = this.ship.profile.engineAccel * UniverseConst.GRAVITY_THRUST_FRACTION;
+                const dvMag = dt * Math.min(gAccel, gCap);
                 Vec2_makeWithAngleMagAdd(
                     this.ship.velocity,
                     Vec2_angle(planet.pos, this.ship.pos),
-                    dt * UniverseConst.GRAVITATION * UniverseConst.SHIP_GRAVITY_MULTIPLIER * (this.ship.mass * planet.mass) / (d * d)
+                    dvMag
                 );
             }
         }
@@ -488,13 +514,17 @@ export class Universe extends Simulator {
     spawnAsteroids() {
         const rng = this.rngForInit;
         let id = 2001;
-        const placeRock = (orbitRadius: number, angle: number) => {
-            const radius = rng.minmax(260, 1400);
+        const placeRock = (orbitRadius: number, angle: number, small: boolean = false) => {
+            // wish 35 (user 2026-11-09): a dedicated layer of SMALL rocks
+            // (30–120 m) — the belt read as too empty; tiny debris fills the
+            // space around the big maneuvering rocks without replacing them.
+            const radius = small ? rng.minmax(30, 120) : rng.minmax(260, 1400);
             const a = new Asteroid(radius);
             a.id = id++;
             a.seed = rng.float();
             a.spin = rng.minmax(-0.6, 0.6);
-            a.radii = Array.from({ length: 9 }, () => 0.55 + rng.float() * 0.55);
+            const verts = small ? 12 : 9;
+            a.radii = Array.from({ length: verts }, () => 0.55 + rng.float() * 0.55);
             Vec2_makeWithAngleMag(a.pos, angle, orbitRadius).addSelf(this.star.pos);
             // circular-orbit velocity (same Keplerians as planets)
             const period = sqrt(orbitRadius * orbitRadius * orbitRadius / this.star.mass) * UniverseConst.KEPLER_CONSTANT;
@@ -516,10 +546,22 @@ export class Universe extends Simulator {
                 const rad = centerRad + (rng.float() + rng.float() - 1) * radSpread;
                 placeRock(clamp(rad, 45_000, 130_000), ang);
             }
+            // small-debris halo: 2-3× the big-rock count, spread wider and
+            // full of gaps so they read as dust around the main field
+            const pebbles = rng.minmaxInt(34, 72);
+            for (let i = 0; i < pebbles; i++) {
+                const ang = centerAngle + (rng.float() + rng.float() - 1) * angSpread * 1.6;
+                const rad = centerRad + (rng.float() + rng.float() - 1) * radSpread * 1.5;
+                placeRock(clamp(rad, 44_000, 132_000), ang, true);
+            }
         }
         // scattered loners across the belt
         for (let i = 0; i < 26; i++) {
             placeRock(lerp(60_000, 110_000, rng.float()), rng.float() * PI * 2);
+        }
+        // scattered small rocks: faint dust arc across the whole belt
+        for (let i = 0; i < 40; i++) {
+            placeRock(lerp(48_000, 126_000, rng.float()), rng.float() * PI * 2, true);
         }
     }
 
@@ -624,12 +666,69 @@ export class Universe extends Simulator {
 
     postUpdateAll(dt: number, entities: Set<Entity>) {
         super.postUpdateAll(dt, entities);
+        this.bounceAsteroidsOffBodies();
         entities.forEach((it: any) => {
             if ((it as Removable).canBeRemoved
                 && (it as Removable).canBeRemoved()) {
                 entities.delete(it);
             }
         });
+    }
+
+    /**
+     * Asteroid-rebound (user 2026-11-09): rocks that plunge into a planet
+     * or the star are pushed back OUT onto the surface and REBUILT with a
+     * reflected velocity (restitution 0.55) — they rebound and fly on a new
+     * course instead of passing through. Position and opos are shifted by
+     * the same correction so the derived velocity stays smooth.
+     */
+    private bounceAsteroidsOffBodies() {
+        const e = 0.55;
+        for (const a of this.asteroids) {
+            for (const p of this.planets) {
+                const dx = a.pos.x - p.pos.x;
+                const dy = a.pos.y - p.pos.y;
+                const d = Math.hypot(dx, dy);
+                const contact = p.radius + a.radius;
+                if (d === 0 || d >= contact) continue;
+                const nx = dx / d;
+                const ny = dy / d;
+                // 1. push out of the surface (pos and opos together)
+                const push = contact - d;
+                a.pos.x += nx * push;
+                a.pos.y += ny * push;
+                a.opos.x += nx * push;
+                a.opos.y += ny * push;
+                // 2. reflect the velocity about the surface normal
+                const vn = a.velocity.x * nx + a.velocity.y * ny;
+                if (vn < 0) {
+                    a.velocity.x -= (1 + e) * vn * nx;
+                    a.velocity.y -= (1 + e) * vn * ny;
+                }
+            }
+            // the star: same treatment (it has collides=false, so it is not
+            // handled by the generic solver)
+            {
+                const p = this.star;
+                const dx = a.pos.x - p.pos.x;
+                const dy = a.pos.y - p.pos.y;
+                const d = Math.hypot(dx, dy);
+                const contact = p.radius + a.radius;
+                if (d === 0 || d >= contact) continue;
+                const nx = dx / d;
+                const ny = dy / d;
+                const push = contact - d;
+                a.pos.x += nx * push;
+                a.pos.y += ny * push;
+                a.opos.x += nx * push;
+                a.opos.y += ny * push;
+                const vn = a.velocity.x * nx + a.velocity.y * ny;
+                if (vn < 0) {
+                    a.velocity.x -= (1 + e) * vn * nx;
+                    a.velocity.y -= (1 + e) * vn * ny;
+                }
+            }
+        }
     }
 
     /**
@@ -756,11 +855,17 @@ export class Landing implements Constraint {
     readonly planet: Planet;
     readonly angle: number;
     private landingVector: Vec2;
-    constructor(ship: Spacecraft, planet: Planet, angle: number) {
+    /**
+     * surfaceRadius: the distance from the body CENTER to the landing face.
+     * For asteroids this is the POLYGON surface distance (user 2026-11-09:
+     * resting on the rock face, never on a hover-circle of "air"), not the
+     * ball-with-the-same-name radius.
+     */
+    constructor(ship: Spacecraft, planet: Planet, angle: number, surfaceRadius: number = planet.radius) {
         this.ship = ship;
         this.planet = planet;
         this.angle = angle;
-        this.landingVector = Vec2_makeWithAngleMag(Vec2.Zero(), angle, ship.radius + planet.radius);
+        this.landingVector = Vec2_makeWithAngleMag(Vec2.Zero(), angle, ship.radius + surfaceRadius);
     }
     solve(sim: Simulator, dt: number) {
         if (this.ship !== null) {

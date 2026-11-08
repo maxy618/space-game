@@ -42,8 +42,8 @@ export class Landing15 extends Landing implements Removable {
     text: string;
     private readonly fuse: Fuse;
 
-    constructor(ship: Spacecraft, planet: Planet, angle: number, text: string) {
-        super(ship, planet, angle);
+    constructor(ship: Spacecraft, planet: Planet, angle: number, text: string, surfaceRadius?: number) {
+        super(ship, planet, angle, surfaceRadius);
         this.text = text;
         this.fuse = new Fuse(Universe15Const.LANDING_REMOVAL_TIME);
     }

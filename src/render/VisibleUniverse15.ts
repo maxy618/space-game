@@ -95,70 +95,127 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
     })();
 
     /**
-     * Scanner reveal wave (user 2026-11-09): two expanding rings — fast
-     * leading edge + soft trailing glow. VISUAL radius is capped below the
-     * reveal radius so the sweep stays readable on screen (the reveal
-     * itself covers the full SCAN_RADIUS instantly).
+     * Scanner reveal wave (user 2026-11-09 v2): PRETTIER sweep — bright
+     * thin leading edge + soft trailing halo + a slower inner echo ring —
+     * expanding to the FULL scan radius (the camera pulls out with it).
+     * While the wave runs, a soft dark vignette ring marks the scanner's
+     * reachable area: everything a scan CANNOT reach fades into the dark
+     * (the world-cull below removes far bodies; the deep sky above stays).
      */
     drawScanWave(universe: VisibleUniverse15) {
         const s = universe.scan;
-        if (s.waveAge < 0) return;
-        const WAVE = 4; // seconds — long enough to be seen, not just missed
-        const t = s.waveAge / WAVE;
-        if (t > 1) return;
-        const alpha = t < 0.6 ? 1 - t / 0.6 : (1 - t) / 0.4;
-        // visual sweep: 48 km (≈ one screen at mid zoom), ease-out
-        const VISUAL_R = 48_000;
-        const r = VISUAL_R * (1 - (1 - Math.min(1, t)) * (1 - Math.min(1, t)));
         const context = this.context;
         const ship = universe.ship.pos;
-        context.save();
-        context.strokeStyle = "rgba(167, 167, 202," + (0.85 * alpha) + ")";
-        context.lineWidth = 3.5 / this.zoom;
-        context.beginPath();
-        context.arc(ship.x, ship.y, Math.max(r, 1), 0, PI * 2);
-        context.stroke();
-        const r2 = Math.max(1, r * 0.86);
-        context.strokeStyle = "rgba(167, 167, 202," + (0.35 * alpha) + ")";
-        context.lineWidth = 12 / this.zoom;
-        context.beginPath();
-        context.arc(ship.x, ship.y, r2, 0, PI * 2);
-        context.stroke();
-        context.restore();
+        const R = SCAN_RADIUS;
+        if (s.waveAge >= 0) {
+            const WAVE = 4; // seconds — long enough to be seen, not just missed
+            const t = s.waveAge / WAVE;
+            if (t <= 1) {
+                const alpha = t < 0.6 ? 1 - t / 0.6 : (1 - t) / 0.4;
+                // ease-out sweep to the full scan radius
+                const r = R * (1 - (1 - Math.min(1, t)) * (1 - Math.min(1, t)));
+                context.save();
+                // trailing halo (wide, soft)
+                context.strokeStyle = "rgba(167, 167, 202," + (0.22 * alpha) + ")";
+                context.lineWidth = 26 / this.zoom;
+                context.beginPath();
+                context.arc(ship.x, ship.y, Math.max(1, r * 0.94), 0, PI * 2);
+                context.stroke();
+                // leading edge (thin, bright)
+                context.strokeStyle = "rgba(198, 198, 232," + (0.9 * alpha) + ")";
+                context.lineWidth = 3.5 / this.zoom;
+                context.beginPath();
+                context.arc(ship.x, ship.y, Math.max(1, r), 0, PI * 2);
+                context.stroke();
+                // inner echo ring (slower, faint)
+                const re = R * (1 - (1 - Math.min(1, t / 1.5)) * (1 - Math.min(1, t / 1.5)));
+                context.strokeStyle = "rgba(167, 167, 202," + (0.16 * alpha) + ")";
+                context.lineWidth = 8 / this.zoom;
+                context.beginPath();
+                context.arc(ship.x, ship.y, Math.max(1, re * 0.62), 0, PI * 2);
+                context.stroke();
+                context.restore();
+            }
+        }
+        // scan-area vignette (user 2026-11-09): DARKNESS AT THE LIMIT — but
+        // only over the near world (deep sky keeps showing beyond); bodies
+        // past the ring are culled, so the far dark reads as empty space.
+        if (s.waveAge >= 0 && s.waveAge <= ZoomedDrawScope15.WAVE_SECONDS + 1.5) {
+            const helper = this.helper;
+            if (helper.width) {
+                const grad = context.createRadialGradient(ship.x, ship.y, 0, ship.x, ship.y, R * 1.25);
+                grad.addColorStop(0, "rgba(5,6,10,0)");
+                grad.addColorStop(0.68, "rgba(5,6,10,0)");          // 0.85 R
+                grad.addColorStop(0.78, "rgba(5,6,10,0.30)");       // ~0.98 R
+                grad.addColorStop(0.9, "rgba(5,6,10,0.86)");
+                grad.addColorStop(1, "rgba(4,5,8,0.97)");
+                context.save();
+                context.fillStyle = grad;
+                context.fillRect(helper.x, helper.y, helper.width, helper.height);
+                context.restore();
+            }
+        }
+    }
+    /** Non-null while the scan wave runs — used by body culling below. */
+    private static WAVE_SECONDS = 5.5;
+
+    /**
+     * Alpha multiplier for world bodies during a scan: 1 inside the scan
+     * area, fading between 0.85R…1.12R, fully invisible past that.
+     * Returns 1 (fast path) when no scan runs.
+     */
+    private scanFadeMul(universe: VisibleUniverse15, pos: Vec2): number {
+        const s = universe.scan;
+        if (s.waveAge < 0 || s.waveAge > ZoomedDrawScope15.WAVE_SECONDS + 1.5) return 1;
+        const d = pos.distance(universe.ship.pos);
+        const R = SCAN_RADIUS;
+        if (d <= R * 0.85) return 1;
+        if (d >= R * 1.12) return 0;
+        return clamp((R * 1.12 - d) / (R * 0.27), 0, 1);
     }
 
     /**
-     * Route autopilot line (user 2026-11-09): wide translucent DASHED line
-     * from the ship to the route target. GREEN while the pilot flies,
-     * RED while stopped on a threat (waiting for the player to steer back
-     * on course). Replaces the old solid autopilot lead-line.
+     * Route autopilot line (user 2026-11-09 v2): dashed chain from the ship
+     * through EVERY route node. GREEN while the pilot flies, RED while
+     * stopped on a threat (waiting for the player to steer back on course).
+     * Unreached nodes carry small ring markers.
      */
     drawRouteLine(universe: VisibleUniverse15) {
-        const ship = universe.ship as Spacecraft15;
-        const ap = ship.autopilot;
-        void ap;
-        const rt = universe.routeTarget;
-        if (rt === null) return;
+        const nodes = universe.routeNodes;
+        if (nodes.length === 0) return;
         const helper = this.helper;
         if (!helper.width) return;
         const context = this.context;
         const stopped = universe.routePhase === "stopped";
         const col = stopped ? "232,72,56" : "110,200,130";
+        const ship = universe.ship.pos;
         context.save();
-        context.strokeStyle = "rgba(" + col + ",0.4)";
-        context.lineWidth = 5 / this.zoom;
-        context.setLineDash([18 / this.zoom, 14 / this.zoom]);
+        context.strokeStyle = "rgba(" + col + ",0.42)";
+        // Wish 44 (user 2026-11-09): route dash is THINNER and MORE FREQUENT
+        // than the previous 5px / [18,14] dash — a fine chain, not a rope.
+        context.lineWidth = 3.2 / this.zoom;
+        context.setLineDash([7 / this.zoom, 5 / this.zoom]);
         context.beginPath();
-        context.moveTo(universe.ship.pos.x, universe.ship.pos.y);
-        context.lineTo(rt.pos.x, rt.pos.y);
+        context.moveTo(ship.x, ship.y);
+        for (let i = universe.routeNodeIdx; i < nodes.length; i++) {
+            context.lineTo(nodes[i].x, nodes[i].y);
+        }
         context.stroke();
         context.setLineDash([]);
-        // target ring
-        context.strokeStyle = "rgba(" + col + ",0.65)";
-        context.lineWidth = 2 / this.zoom;
-        context.beginPath();
-        context.arc(rt.pos.x, rt.pos.y, rt.radius * 1.22 + 10 / this.zoom, 0, PI * 2);
-        context.stroke();
+        // node markers: solid for the current target, hollow for the rest
+        for (let i = universe.routeNodeIdx; i < nodes.length; i++) {
+            const n = nodes[i];
+            context.beginPath();
+            context.arc(n.x, n.y, (n.radius > 0 ? n.radius * 1.12 : 240) + 10 / this.zoom, 0, PI * 2);
+            if (i === universe.routeNodeIdx) {
+                context.strokeStyle = "rgba(" + col + ",0.75)";
+                context.lineWidth = 2.4 / this.zoom;
+            } else {
+                context.strokeStyle = "rgba(" + col + ",0.4)";
+                context.lineWidth = 1.6 / this.zoom;
+            }
+            context.stroke();
+        }
         context.restore();
     }
 
@@ -206,16 +263,27 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             }
         });
         this.drawStar(universe.star);
+        const u15 = universe as VisibleUniverse15;
+        const context = this.context;
         universe.entities.forEach(it => {
             if (it === universe.star) return; // don't draw the star as a planet
             if (it instanceof Spark) {
                 this.drawSpark(it);
             } else if (it instanceof Asteroid) {
+                if (this.scanFadeMul(u15, it.pos) <= 0) return;
+                context.globalAlpha = this.scanFadeMul(u15, it.pos);
                 this.drawAsteroid(it);
+                context.globalAlpha = 1;
             } else if (it instanceof CargoShip) {
+                if (this.scanFadeMul(u15, it.pos) <= 0) return;
+                context.globalAlpha = this.scanFadeMul(u15, it.pos);
                 this.drawCargoShip(it);
+                context.globalAlpha = 1;
             } else if (it instanceof Planet) {
+                if (this.scanFadeMul(u15, it.pos) <= 0) return;
+                context.globalAlpha = this.scanFadeMul(u15, it.pos);
                 this.drawPlanet(it);
+                context.globalAlpha = 1;
             }
         });
         // runtime object is always VisibleUniverse15 (drawUniverse is
@@ -729,6 +797,9 @@ export class VisibleUniverse15 extends VisibleUniverse {
     /** Route autopilot (user 2026-11-09): target body + phase, for the line. */
     routeTarget: Planet | null = null;
     routePhase: "chase" | "brake" | "arrived" | "stopped" | "off" = "off";
+    /** Multi-waypoint route (user 2026-11-09): world-space nodes. */
+    routeNodes: Array<{ x: number; y: number; radius: number }> = [];
+    routeNodeIdx = 0;
 
     initTest() {
         const systemName = "TEST SYSTEM"
@@ -857,40 +928,62 @@ export class VisibleUniverse15 extends VisibleUniverse {
 
     /**
      * Trigger the scanner. Returns the number of newly revealed bodies
-     * (0 when on cooldown).
+     * (0 when on cooldown). Planets, ASTEROIDS (user 2026-11-09: big rocks
+     * are scannable too), cargo traffic and the STAR (its class stays
+     * unknown until scanned) are all revealed.
      */
-    triggerScan(): number {
+    triggerScan(): { total: number; planets: number; asteroids: number; else_: number } {
         const started = triggerScan(this.scan);
-        if (!started) return 0;
+        if (!started) return { total: 0, planets: 0, asteroids: 0, else_: 0 };
         const shipPos = this.ship.pos;
-        let revealed = 0;
+        let planets = 0;
+        let asteroids = 0;
+        let else_ = 0;
         for (const p of this.planets) {
             if (p.scanned) continue;
             if (p.pos.distance(shipPos) <= SCAN_RADIUS) {
                 p.scanned = true;
-                revealed++;
+                planets++;
+            }
+        }
+        if (!this.star.scanned && this.star.pos.distance(shipPos) <= SCAN_RADIUS) {
+            this.star.scanned = true;
+            else_++;
+        }
+        for (const a of this.asteroids) {
+            if (a.scanned) continue;
+            if (a.pos.distance(shipPos) <= SCAN_RADIUS) {
+                a.scanned = true;
+                asteroids++;
             }
         }
         for (const ship of this.cargoShips) {
             if (ship.scanned) continue;
             if (ship.pos.distance(shipPos) <= SCAN_RADIUS) {
                 ship.scanned = true;
-                revealed++;
+                else_++;
             }
         }
-        return revealed;
+        return { total: planets + asteroids + else_, planets, asteroids, else_ };
     }
 
     /**
      * Stellar hazard (user 2026-11-08): advance the ship's heat against the
-     * system star. Danger zones scale with the star radius (StarHeat.ts);
-     * destruction at critical heating or inside the inner boundary.
+     * system star. Zones scale with the star radius (StarHeat.ts); the
+     * hot-zone COUNTDOWN (2026-11-09) destroys on expiry, or touching the
+     * star destroys instantly. State is exposed for the warning HUD.
      */
+    starProximity = 0;
+    starCountdown: number | null = null;
+    starHot = false;
     updateStarHazard(dt: number) {
         const ship = this.ship;
         const dist = ship.pos.distance(this.star.pos);
-        const res = starHeatStep(ship.heat, dist, this.star.radius, dt, ship.profile.heatTolerance, ship.profile.coolRate);
+        const res = starHeatStep(ship.heat, dist, this.star.radius, dt, ship.profile.heatTolerance, ship.profile.coolRate, this.starCountdown);
         ship.heat = res.heat;
+        this.starProximity = res.proximity;
+        this.starHot = res.hot;
+        this.starCountdown = res.countdown;
         if (res.destroy) this.destroyShip();
     }
 
@@ -1091,15 +1184,14 @@ export class VisibleUniverse15 extends VisibleUniverse {
                     // landing, or impact?
 
                     // 1. relative speed
-                    // const vDiff = (this.ship.velocity.distance(planet.velocity));
+                    const vDiff = (this.ship.velocity.distance(planet.velocity));
                     // 2. landing angle
                     const aDiff = abs(this.ship.angle - a);
 
-                    // landing criteria
-                    if (aDiff < PI / 4
-                        //                        &&
-                        //                        vDiff < 100f
-                    ) {
+                    // landing criteria: nose aligned AND slow enough to touch
+                    // down (user 2026-11-09: high-speed contacts must be
+                    // CRASHES, never elastic landings)
+                    if (aDiff < PI / 4 && vDiff < 300) {
                         const landing = new Landing15(this.ship, planet, a, (this.namer as Namer15).describeActivity(this.rng, planet));
                         this.ship.landing = landing;
                         Vec2_copy(this.ship.velocity, planet.velocity);
@@ -1109,14 +1201,14 @@ export class VisibleUniverse15 extends VisibleUniverse {
                         this.latestDiscovery = planet;
                     } else {
                         const impact = Vec2_makeWithAngleMag(Vec2.Zero(), a, planet.radius).addSelf(planet.pos);
-                        Vec2_makeWithAngleMag(this.ship.pos, a, planet.radius + this.ship.radius - d).addSelf(planet.pos);
+                        const relVx = this.ship.velocity.x - planet.velocity.x;
+                        const relVy = this.ship.velocity.y - planet.velocity.y;
+                        this.resolveHardImpact(impact.x, impact.y, a, relVx, relVy, dt, planet.velocity, planet);
 
                         // budgeted impact FX (user 2026-11-08): see
                         // spawnImpactSparks — once per cooldown, velocity-scaled
                         if (this.impactFxCooldown <= 0) {
                             this.impactFxCooldown = 0.12;
-                            const relVx = this.ship.velocity.x - planet.velocity.x;
-                            const relVy = this.ship.velocity.y - planet.velocity.y;
                             this.spawnImpactSparks(impact.x, impact.y, Math.hypot(relVx, relVy), a, relVx, relVy);
                         }
                     }
@@ -1150,26 +1242,28 @@ export class VisibleUniverse15 extends VisibleUniverse {
                     // surface, so the ship rests ON the rock face (user
                     // 2026-11-08: circle collision left it hovering over air).
                     const aDiff = abs(this.ship.angle - a);
-                    if (aDiff < PI / 4) {
+                    const vDiff = (this.ship.velocity.distance(asteroid.velocity));
+                    if (aDiff < PI / 4 && vDiff < 300) {
                         const landing = new Landing15(
                             this.ship,
                             asteroid as unknown as Planet,
                             a,
                             (this.namer as Namer15).describeActivity(this.rng, asteroid as unknown as Planet),
+                            asteroid.surfaceDistance(a),
                         );
                         this.ship.landing = landing;
                         Vec2_copy(this.ship.velocity, asteroid.velocity);
                         this.addConstraint(landing);
                     } else {
                         const impact = Vec2_makeWithAngleMag(Vec2.Zero(), a, surfaceDist).addSelf(asteroid.pos);
-                        Vec2_makeWithAngleMag(this.ship.pos, a, surfaceDist + this.ship.radius - d).addSelf(asteroid.pos);
+                        const relVx = this.ship.velocity.x - asteroid.velocity.x;
+                        const relVy = this.ship.velocity.y - asteroid.velocity.y;
+                        this.resolveHardImpact(impact.x, impact.y, a, relVx, relVy, dt, asteroid.velocity, asteroid);
 
                         // budgeted impact FX (user 2026-11-08): see
                         // spawnImpactSparks — once per cooldown, velocity-scaled
                         if (this.impactFxCooldown <= 0) {
                             this.impactFxCooldown = 0.12;
-                            const relVx = this.ship.velocity.x - asteroid.velocity.x;
-                            const relVy = this.ship.velocity.y - asteroid.velocity.y;
                             this.spawnImpactSparks(impact.x, impact.y, Math.hypot(relVx, relVy), a, relVx, relVy);
                         }
                     }
@@ -1178,5 +1272,51 @@ export class VisibleUniverse15 extends VisibleUniverse {
         }
 
         solveSimulator.call(this, dt, constraints);
+    }
+
+    /**
+     * Realistic hard impact (user 2026-11-09): no super-speed ejection.
+     * The old code pushed the ship POSITION out inside solveAll, and the
+     * position-based-dynamics postUpdate then derived that push as extra
+     * velocity — a glancing hit could fling the ship away at 10 000 m/s.
+     * Now: push out AND pin opos so the derived velocity equals the
+     * explicitly reflected one; tangential speed is damped by impact
+     * severity (a hard hit barely slides); extreme closing speed destroys
+     * the ship outright.
+     */
+    private resolveHardImpact(
+        impactX: number, impactY: number, normalA: number,
+        relVx: number, relVy: number, dt: number,
+        bodyVel: Vec2, body: { pos: Vec2, radius: number },
+    ) {
+        const ship = this.ship;
+        // normal a points body→ship
+        const nx = Math.cos(normalA);
+        const ny = Math.sin(normalA);
+        // 1. push out along the surface normal
+        {
+            const dPen = ship.pos.distance(body.pos) - body.radius - ship.radius; // ≤ 0 here
+            const push = -dPen;
+            ship.pos.x += nx * push;
+            ship.pos.y += ny * push;
+        }
+        // 2. explicit reflection (never the old PBD position trick)
+        const vn = relVx * nx + relVy * ny; // < 0 while moving INTO the body
+        const tx = relVx - vn * nx;
+        const ty = relVy - vn * ny;
+        // severity: hard hits slide less and rebound less
+        const hard = vn < -3000;
+        const mid = vn < -700;
+        const vtKeep = hard ? 0.3 : mid ? 0.55 : 0.9;
+        const rebound = hard ? 0.08 : mid ? 0.18 : 0.3;
+        const vnOut = Math.max(0, -vn) * rebound; // always outward
+        ship.velocity.x = bodyVel.x + tx * vtKeep + nx * vnOut;
+        ship.velocity.y = bodyVel.y + ty * vtKeep + ny * vnOut;
+        // 3. pin opos so postUpdate derives EXACTLY this velocity
+        ship.opos.x = ship.pos.x - ship.velocity.x * dt;
+        ship.opos.y = ship.pos.y - ship.velocity.y * dt;
+        // 4. extreme speed: the crash destroys the ship (realistic)
+        const relSpeed = Math.hypot(relVx, relVy);
+        if (relSpeed > 5500) this.destroyShip();
     }
 }

@@ -1,14 +1,14 @@
-/*
- * RoutePilot (user 2026-11-09): the simple A→B autopilot — NOT the old
+﻿/*
+ * RoutePilot (user 2026-11-09): the simple Aв†’B autopilot вЂ” NOT the old
  * full landing-tour autopilot. Behavior contract:
  *
  *  - CHASE: point the nose at the target (or a threat-avoiding hold),
  *    full thrust; boost auto-engages while far and aligned (the user's
- *    "форсаж авто").
+ *    "С„РѕСЂСЃР°Р¶ Р°РІС‚Рѕ").
  *  - BRAKE: inside the braking window, flip retrograde and decelerate.
  *  - ARRIVED: hold position at arriveDist from the target center; thrust 0.
  *  - THREAT (user spec): if any body sits on the course (closed-form TTI
- *    < 5 s), the pilot does NOT dodge — it BRAKES TO A STOP and waits,
+ *    < 5 s), the pilot does NOT dodge вЂ” it BRAKES TO A STOP and waits,
  *    drawing the route line red until the player steers the nose back
  *    onto the course (within RESUME_ANGLE) and the threat is gone.
  *
@@ -20,7 +20,7 @@ import { timeToImpact, IMPACT_WARN_SECONDS } from "../universe/CollisionPredict"
 export interface RouteTarget {
     x: number;
     y: number;
-    /** Surface radius (m) — the pilot stops arriveDist above it. */
+    /** Surface radius (m) вЂ” the pilot stops arriveDist above it. */
     radius: number;
     vx?: number;
     vy?: number;
@@ -49,7 +49,7 @@ export function createRoutePilot(): RoutePilotState {
 
 /** Relative-approach helpers (target velocity included). */
 export const PILOT_ARRIVE_DIST = 600; // stop this far above the surface
-export const PILOT_RESUME_ANGLE = Math.PI / 12; // 15°
+export const PILOT_RESUME_ANGLE = Math.PI / 12; // 15В°
 
 function relDist(tx: number, ty: number, tvx: number, tvy: number, sx: number, sy: number, svx: number, svy: number): { d: number; closing: number } {
     const dx = tx - sx;
@@ -63,7 +63,7 @@ function relDist(tx: number, ty: number, tvx: number, tvy: number, sx: number, s
 /** Closing speed toward the target along the line of sight (m/s). */
 
 /**
- * One pilot step. Mutates thrust/boost via the returned intent — the
+ * One pilot step. Mutates thrust/boost via the returned intent вЂ” the
  * caller applies it (keeps this pure and testable).
  */
 export interface PilotIntent {
@@ -80,6 +80,7 @@ export function pilotStep(
     ship: { x: number; y: number; vx: number; vy: number; angle: number },
     dt: number,
     engineAccel: number,
+    opts: { intermediate?: boolean } = {},
 ): PilotIntent {
     const none: PilotIntent = { thrustX: 0, thrustY: 0, boost: false, stopRequested: false };
     if (!s.active) return none;
@@ -114,19 +115,39 @@ export function pilotStep(
         else return { ...none, stopRequested: true };
     }
 
+    // INTERMEDIATE nodes (user 2026-11-09): no arrival, no braking window вЂ”
+    // pure pursuit; the pass may drift slightly off the node by inertia.
+    if (opts.intermediate) {
+        s.phase = "chase";
+        // PURSUIT BOOST (user 2026-11-09): the radar autopilot may burn the
+        // booster on intermediate legs too (it never did before — this branch
+        // hard-coded boost:false), whenever the player could too.
+        const boost = d > 6000 && headingErr < Math.PI / 4;
+        s.wantBoost = boost;
+        const ax = Math.cos(bearing);
+        const ay = Math.sin(bearing);
+        return { thrustX: ax, thrustY: ay, boost, stopRequested: false };
+    }
+
     const arrive = target.radius + PILOT_ARRIVE_DIST;
     if (d <= arrive + 50) {
         s.phase = "arrived";
-        return none; // hold: no thrust (the body keeps orbiting; fine for now)
+        // Final arrival (user 2026-11-09): come to a FULL stop above the
+        // node, not merely coast вЂ” retrograde the remaining velocity.
+        const spd = Math.hypot(ship.vx, ship.vy);
+        if (spd > 40) {
+            return { thrustX: -ship.vx / spd, thrustY: -ship.vy / spd, boost: false, stopRequested: false };
+        }
+        return none;
     }
 
-    // braking window: v²/(2a) distance heuristic, evaluated on closing speed
+    // braking window: vВІ/(2a) distance heuristic, evaluated on closing speed
     const brakeDist = (closing * closing) / (2 * engineAccel) + arrive;
     if (d < brakeDist * 1.15 && closing > 50) s.phase = "brake";
     else s.phase = closing > -50 ? "chase" : "brake";
 
     if (s.phase === "brake") {
-        // full retrograde of the RELATIVE velocity — kills the closing speed
+        // full retrograde of the RELATIVE velocity вЂ” kills the closing speed
         const rvx = ship.vx - (target.vx ?? 0);
         const rvy = ship.vy - (target.vy ?? 0);
         const rm = Math.hypot(rvx, rvy);
@@ -136,8 +157,9 @@ export function pilotStep(
         return none;
     }
 
-    // chase: align + full thrust; boost while far and roughly aligned
-    const boost = d > 25_000 && headingErr < Math.PI / 5;
+    // chase: align + full thrust; boost whenever the player could too —
+    // far enough that burning it actually pays and roughly aligned.
+    const boost = d > 8000 && headingErr < Math.PI / 4;
     s.wantBoost = boost;
     const ax = Math.cos(bearing);
     const ay = Math.sin(bearing);

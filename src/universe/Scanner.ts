@@ -11,8 +11,8 @@
 
 /** Reveal radius (m) — covers most of a system from mid-orbit. */
 export const SCAN_RADIUS = 120_000;
-/** Cooldown between scans (seconds). */
-export const SCAN_COOLDOWN = 30;
+/** Cooldown between scans (seconds; 15s per user 2026-11-09). */
+export const SCAN_COOLDOWN = 15;
 /** Wave visual duration (seconds). */
 export const SCAN_WAVE_SECONDS = 3;
 

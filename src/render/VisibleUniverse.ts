@@ -348,14 +348,19 @@ export class ZoomedDrawScope {
     drawTrack(track: Track) {
         const context = this.context;
         if (SIMPLE_TRACK_DRAWING) {
-            // Barely-visible grey dashes (user 2026-11-09): just enough for
-            // a new player to see the ship moves. Points expire by age —
-            // the tail vanishes far behind the camera while flying.
+            // Grey dashes (user 2026-11-09): simply enough for a new player to
+            // see the ship moves — bolder than v1 after "вообще не видна"
+            // feedback, still restrained. Wish 44 (user 2026-11-09): the ship
+            // trail is now STRONGLY WIDER than before (2.5/zoom ≈ half of the
+            // old 5px route line, ~1.5× the old 1.7px trail) and SPARSER
+            // ([4,9] dashes instead of [5,5]), same restrained transparency.
+            // Points expire by age — the tail vanishes far behind the camera
+            // while flying.
             const total = track.size();
             if (total < 2) return;
-            context.strokeStyle = "rgba(168, 168, 180, 0.10)";
-            context.lineWidth = 1.2 / this.zoom;
-            context.setLineDash([4 / this.zoom, 6 / this.zoom]);
+            context.strokeStyle = "rgba(168, 168, 180, 0.3)";
+            context.lineWidth = 2.5 / this.zoom;
+            context.setLineDash([4 / this.zoom, 9 / this.zoom]);
             context.beginPath();
             let first = true;
             track.forEachPoint((x, y) => {

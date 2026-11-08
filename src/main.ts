@@ -22,7 +22,6 @@ import { setDrawFlag } from "./core/Flag15";
 import {
     DEFAULT_CAMERA_ZOOM,
     getCamZoom,
-    getIsBaklava,
     MainActivity15,
     RandomSeedType,
     setCamZoom,
@@ -68,7 +67,6 @@ let controlsInterval: any = -1;
 let controlsShow = false;
 
 const controlsContainer = document.getElementById("rightContainer")!;
-const autopilotButton = document.getElementById("autoPilotDebugButton")!;
 let selectedZoomIndex = 0;
 const zoomSelect = document.getElementById("zoomSelect") as HTMLSelectElement;
 function zoomSelectChange() {
@@ -141,10 +139,8 @@ function loadParams() {
     const baklavaStr = params.get("is16");
     if (baklavaStr === "true" || baklavaStr === "1") {
         setIsBaklava(true);
-        updateAutopilotButton();
     } else if (baklavaStr === "false" || baklavaStr === "0") {
         setIsBaklava(false);
-        updateAutopilotButton();
     }
 }
 loadParams();
@@ -178,7 +174,6 @@ if (typeof location !== "undefined" && location.hash.includes("debug=1")) {
 }
 const pointerInput = activity.pointerInput;
 const drawFn = activity.draw;
-const setAutopilot = activity.setAutopilot;
 let animationID = -1;
 const clock = new SimClock();
 
@@ -188,7 +183,11 @@ function animation(millis: number) {
         console.warn(clock.skippedWarning);
         clock.skippedWarning = null;
     }
-    if (clock.shouldDraw()) drawFn(drawTime, canvasContext, helper);
+    // While the radar is open the sim is paused (clock.pause), which would
+    // also stop the radar's own redraw (drawRadar lives inside drawFn).
+    // Keep drawing frames then — dt stays 0, so physics stays frozen, but
+    // the map keeps refreshing (jitter sweep, route line, ship marker).
+    if (clock.shouldDraw() || radarOpen) drawFn(drawTime, canvasContext, helper);
     clock.consumeRedraw();
     keepPauseButtonClear();
     animationID = requestAnimationFrame(animation);
@@ -232,27 +231,10 @@ function disableTouch() {
 enableTouch();
 
 function updateAutopilotButton() {
-    if (getIsBaklava() && !controlsShow) {
-        autopilotButton.classList.add("controls-show");
-    } else {
-        autopilotButton.classList.remove("controls-show");
-    }
+    // removed: the debug autopilot button no longer exists (two autopilots →
+    // one; the radar button opens the shared map). Kept as a no-op so the
+    // call sites stay stable during the transition.
 }
-
-function setAutoPilotState(newState: boolean) {
-    setAutopilot(newState);
-    if (newState) {
-        autopilotButton.classList.add("autopilot-button-selected");
-    } else {
-        autopilotButton.classList.remove("autopilot-button-selected");
-    }
-}
-
-autopilotButton.addEventListener("click", function () {
-    setAutoPilotState(!autopilotButton.classList.contains("autopilot-button-selected"));
-    setDynamicZoom(autopilotButton.classList.contains("autopilot-button-selected"));
-    showControlsNoHide();
-});
 
 function hideControls() {
     controlsShow = false;
@@ -545,77 +527,187 @@ scanButton.addEventListener("click", () => {
 });
 const radarButton = document.getElementById("radarButton") as HTMLButtonElement;
 const radarCanvas = document.getElementById("radarCanvas") as HTMLCanvasElement;
+const radarCloseBtn = document.getElementById("radarClose") as HTMLButtonElement;
+const routeAdd = document.getElementById("routeAdd") as HTMLButtonElement;
+const routeDel = document.getElementById("routeDel") as HTMLButtonElement;
+const routeClear = document.getElementById("routeClear") as HTMLButtonElement;
+const routeGo = document.getElementById("routeGo") as HTMLButtonElement;
+const objectInfo = document.getElementById("objectInfo") as HTMLElement;
+const objectInfoTitle = document.getElementById("objectInfoTitle") as HTMLElement;
+const objectInfoType = document.getElementById("objectInfoType") as HTMLElement;
+const objectInfoRows = document.getElementById("objectInfoRows") as HTMLElement;
+const objectInfoClose = document.getElementById("objectInfoClose") as HTMLButtonElement;
 let radarOpen = false;
+let radarPick = false;
+let radarDel = false;
+/** Canvas-local point relative to canvas CENTER, in canvas px. */
+function radarPoint(e: { clientX: number; clientY: number }): [number, number] {
+    const rect = radarCanvas.getBoundingClientRect();
+    const px = (e.clientX - rect.left) * (radarCanvas.width / rect.width);
+    const py = (e.clientY - rect.top) * (radarCanvas.height / rect.height);
+    return [px - radarCanvas.width / 2, py - radarCanvas.height / 2];
+}
+function setRadarPick(on: boolean) {
+    if (on && radarDel) setRadarDelete(false); // modes are mutually exclusive
+    radarPick = on;
+    activity.setRadarPickMode(on);
+    routeAdd.classList.toggle("mode-on", on);
+}
+function setRadarDelete(on: boolean) {
+    if (on && radarPick) setRadarPick(false);
+    radarDel = on;
+    activity.setRadarDeleteMode?.(on);
+    routeDel.classList.toggle("mode-on", on);
+    routeDel.classList.toggle("del-mode", on);
+}
 function setRadarOpen(open: boolean) {
     radarOpen = open;
     radarButton.classList.toggle("open", open);
-    activity.setRadarOpen(open);
+    activity.setRadarOpen(open); // toggles #radarOverlay.open inside MainActivity15
+    // Radar = pause (user 2026-11-09): the simulation freezes while the map
+    // is open; closing resumes it (unless the pause MENU is already up).
+    if (open) {
+        if (pauseMenu.hidden) clock.pause(performance.now());
+    } else if (pauseMenu.hidden) {
+        setRadarPick(false);
+        setRadarDelete(false);
+        clock.resume(performance.now());
+    }
 }
 radarButton.addEventListener("click", () => {
     setRadarOpen(!radarOpen);
     radarButton.blur();
 });
-// close the radar on backdrop tap (click outside the canvas)
-document.getElementById("radarOverlay")?.addEventListener("click", (e) => {
-    if ((e.target as HTMLElement).id === "radarOverlay") setRadarOpen(false);
-});
+// Close ONLY via the ✕ above the map's top-right corner (no backdrop close).
+radarCloseBtn.addEventListener("click", () => setRadarOpen(false));
 // keyboard: Q scans, R toggles the radar
 inputLayer.setEdgeHandler("scan", () => scanButton.click());
 window.addEventListener("keydown", (e) => {
     if (e.code === "KeyR" && !e.repeat) radarButton.click();
 });
 
-// ===== Route autopilot UI (user 2026-11-09) =====
-const autoPilotButton = document.getElementById("autoPilotButton") as HTMLButtonElement;
-const routeBar = document.getElementById("routeBar") as HTMLElement;
-const routeAdd = document.getElementById("routeAdd") as HTMLButtonElement;
-const routeGo = document.getElementById("routeGo") as HTMLButtonElement;
-const routeCancel = document.getElementById("routeCancel") as HTMLButtonElement;
-let routePick: number | null = null;
-// autopilot button = open the map in ROUTE mode (targets are picked there)
-autoPilotButton.addEventListener("click", () => {
-    setRadarOpen(true);
-    routeBar.style.display = "flex";
-    autoPilotButton.blur();
-});
-// click a planet glyph on the radar → select it as the route target
-radarCanvas.addEventListener("click", (e) => {
-    const rect = radarCanvas.getBoundingClientRect();
-    const cx = (e.clientX - rect.left) * (radarCanvas.width / rect.width);
-    const cy = (e.clientY - rect.top) * (radarCanvas.height / rect.height);
-    // reverse the radar transform: canvas center = star, scale computed in draw
-    const mx = cx - radarCanvas.width / 2;
-    const my = cy - radarCanvas.height / 2;
-    // hit-test with the same scale logic as drawRadar (44% of canvas / maxOrbit)
-    const info = activity.routeInfo?.();
-    void info;
-    const hit = activity.radarHitTest?.(mx, my) ?? null;
-    routePick = hit;
-    routeAdd.style.opacity = hit === null ? "0.4" : "1";
-});
-routeAdd.addEventListener("click", () => {
-    if (routePick === null) return;
-    activity.setRouteTargetById(routePick);
-    routeAdd.textContent = "ADDED ✓".replace("✓", "");
-    setTimeout(() => { routeAdd.textContent = "ADD ROUTE"; }, 900);
-});
+// ===== Route autopilot UI (user 2026-11-09 v3) =====
+// Four square buttons confirm the route bar: ADD (+) pick mode, DELETE (−)
+// click-to-delete mode (the highlighted square tells the player to click a
+// node; neighbors then chain directly), CANCEL (red, clears all), GO
+// (green, launch). ADD NODE works at ANY point (snapping to a planet glyph
+// within 14 px). Close the radar with ✕; clicking in view mode opens the
+// object info card (bottom-left).
+routeAdd.addEventListener("click", () => setRadarPick(!radarPick));
+routeDel.addEventListener("click", () => setRadarDelete(!radarDel));
+routeClear.addEventListener("click", () => { activity.clearRoute?.(); setRadarPick(false); setRadarDelete(false); });
 routeGo.addEventListener("click", () => {
-    if (activity.setRouteTargetById(routePick) && activity.startRoute()) {
-        setRadarOpen(false);
-        routeBar.style.display = "none";
+    if (activity.startRoute()) {
+        setRadarPick(false);
+        setRadarDelete(false);
+        setRadarOpen(false); // also resumes the sim
     }
+    routeGo.blur();
 });
-routeCancel.addEventListener("click", () => {
-    activity.cancelRoute();
-    routeBar.style.display = "none";
-    autoPilotButton.classList.remove("engaged", "stopped");
+// Object info card (view mode)
+objectInfoClose.addEventListener("click", () => objectInfo.classList.remove("active"));
+function showObjectInfo(info: { name: string; type: string; rows: Array<[string, string]> } | null) {
+    if (!info || info === null) { objectInfo.classList.remove("active"); return; }
+    objectInfoTitle.textContent = info.name;
+    objectInfoType.textContent = info.type;
+    objectInfoRows.replaceChildren(
+        ...info.rows.map(([k, v]) => {
+            const row = document.createElement("div");
+            const dt = document.createElement("dt");
+            dt.textContent = k;
+            const dd = document.createElement("dd");
+            dd.textContent = v;
+            row.append(dt, dd);
+            return row;
+        }),
+    );
+    objectInfo.classList.add("active");
+}
+// Radar wheel zoom (anchored under the cursor) + pointer pan/pinch.
+// A press-move under 6 px counts as a click (pick or info), a longer drag pans.
+radarCanvas.addEventListener("wheel", (e) => {
+    if (!radarOpen) return;
+    e.preventDefault();
+    const [cx, cy] = radarPoint(e);
+    activity.radarZoomBy?.(e.deltaY < 0 ? 1.25 : 0.8, cx, cy);
+}, { passive: false });
+const radarPointers = new Map<number, { x: number; y: number }>();
+let radarDragDist = 0;
+let radarPinchDist = 0;
+function radarCanvasPx(t: { clientX: number; clientY: number }): [number, number] {
+    const rect = radarCanvas.getBoundingClientRect();
+    return [
+        (t.clientX - rect.left) * (radarCanvas.width / rect.width),
+        (t.clientY - rect.top) * (radarCanvas.height / rect.height),
+    ];
+}
+radarCanvas.addEventListener("pointerdown", (e) => {
+    if (!radarOpen) return;
+    radarCanvas.setPointerCapture(e.pointerId);
+    radarPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    radarDragDist = 0;
+    if (radarPointers.size === 2) {
+        const [a, b] = [...radarPointers.values()];
+        radarPinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+    } else radarPinchDist = 0;
 });
-// keep the autopilot button in sync with the pilot state
-setInterval(() => {
-    const info = activity.routeInfo?.();
-    autoPilotButton.classList.toggle("engaged", info?.active === true && info.phase !== "stopped");
-    autoPilotButton.classList.toggle("stopped", info?.phase === "stopped");
-}, 250);
+radarCanvas.addEventListener("pointermove", (e) => {
+    if (!radarOpen || !radarPointers.has(e.pointerId)) return;
+    const prev = radarPointers.get(e.pointerId)!;
+    const dx = e.clientX - prev.x;
+    const dy = e.clientY - prev.y;
+    radarPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (radarPointers.size === 2) {
+        // pinch-zoom between the two pointers
+        const [a, b] = [...radarPointers.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (radarPinchDist > 0 && Math.abs(d - radarPinchDist) > 2) {
+            const [cx, cy] = radarPoint(e);
+            activity.radarZoomBy?.(d / radarPinchDist, cx, cy);
+        }
+        radarPinchDist = d;
+        radarDragDist = Number.MAX_SAFE_INTEGER; // pinch never clicks
+        return;
+    }
+    radarDragDist += Math.hypot(dx, dy);
+    const [pdx, pdy] = radarPoint({ clientX: prev.x + dx, clientY: prev.y + dy });
+    void pdx; void pdy;
+    // pan by raw client deltas scaled to canvas px
+    const rect = radarCanvas.getBoundingClientRect();
+    activity.radarPanBy?.(
+        dx * (radarCanvas.width / rect.width),
+        dy * (radarCanvas.height / rect.height),
+    );
+});
+function radarPointerEnd(e: PointerEvent) {
+    if (!radarPointers.has(e.pointerId)) return;
+    radarPointers.delete(e.pointerId);
+    if (radarPinchDist !== 0 && radarPointers.size === 0) radarPinchDist = 0;
+    if (radarDragDist > 6 || radarPointers.size > 0) { radarDragDist = 0; return; }
+    radarDragDist = 0;
+    // click routing: delete mode removes the node under the cursor (the
+    // chain then joins its neighbors directly); pick mode adds a node
+    // anywhere; view mode opens the info card.
+    const [mx, my] = radarPoint(e);
+    if (radarDel) {
+        activity.deleteNodeAt?.(mx, my);
+        objectInfo.classList.remove("active");
+        return;
+    }
+    const res = activity.radarClick?.(mx, my) ?? null;
+    if (res && "added" in (res as object)) {
+        // pick feedback: keep the card clear, route line shows the node
+        objectInfo.classList.remove("active");
+    } else if (res && "name" in (res as object)) {
+        showObjectInfo(res as { name: string; type: string; rows: Array<[string, string]> });
+    } else {
+        objectInfo.classList.remove("active");
+    }
+}
+radarCanvas.addEventListener("pointerup", radarPointerEnd);
+radarCanvas.addEventListener("pointercancel", radarPointerEnd);
+// double-click resets the view (back to the full system)
+radarCanvas.addEventListener("dblclick", () => activity.radarResetView?.());
 
 pauseContinue.addEventListener("click", function () {
     setPlayerPaused(false);
