@@ -1,6 +1,6 @@
 # PHASE 06 — Art direction and layered rendering architecture
 
-**Status:** PENDING  
+**Status:** COMPLETE  
 **Dependency:** Phase 05 exit gate must pass.
 
 ## Goal
@@ -41,3 +41,4 @@ Before closing: actively play the phase result in Playwright; inspect normal-siz
 
 ## Handoff
 Record completed tasks, evidence paths, unresolved defects, performance, commit/push/Pages state and next phase. Do not mark the next phase active before this gate passes.
+

@@ -1,10 +1,29 @@
 # Project state
 
-**Active phase:** 05 — Space camera, scale and navigation feel (COMPLETE)
-**Active task:** none — Phase 05 closed (P05-T04 VERIFIED)
-**Overall status:** P01 ✅ | P02 ✅ | P03 ✅ | P04 ✅ | P05-T01 ✅ | P05-T02 ✅ | P05-T03 ✅ | P05-T04 ✅
-**Last verified commit:** f1908f2 (P05-T04)
-**Latest QA evidence:** EVIDENCE/PHASE_05/P05-T04/ (completion-report.md, t04-autopilot-landing)
+**Active phase:** 08 — Ray-marching, optics and contextual screen filters (COMPLETE)
+**Active task:** none — Phase 08 closed (P08-T01..T05 VERIFIED)
+**Overall status:** P01 ✅ | P02 ✅ | P03 ✅ | P04 ✅ | P05 ✅ | P06 ✅ | P07 ✅ | P08 ✅
+**Last verified commit:** 49e21c0 (Batch 6 UI) + Phase 08 graphics breakthrough (this commit)
+**Latest QA evidence:** EVIDENCE/PHASE_08/P08-T01..T05 + EVIDENCE/batch6/ (planet/star/BH/tier proofs)
+
+## Phase 08 graphics breakthrough (2026-11-09, large research first)
+- Research: `docs/RESEARCH_PHASE_06_07_08.md` — renderer constraint (Canvas2D,
+  no HW-RT), FBM/nebulae, stellar physics, planet atmosphere, BH lensing
+  (screen-space vs geodesic), PostFX design + tiers. Full URLs + confidence.
+- Celestial sprites: `src/render/CelestialArt.ts` (seeded FBM, palettes, sun
+  lighting) + `src/render/SpriteBaker.ts` (star/planet/cloud baking, 384px,
+  1 blit/body). LOD-wired (`lodFor`): macro=glow disc, fine/micro=procedural
+  base at extreme close-up (no sprite blur).
+- WebGL2 PostFX compositor `src/render/PostFX.ts`: barrel warp, BH screen-space
+  lensing, heat shimmer/glare, 9-tap in-shader bloom, exact-black highlight
+  rolloff, CA, vignette, grain. Tiers high/medium/low/off, reduced-motion
+  gated, `resize()`/`dispose()` leak-free. Input untouched (pointer-events none).
+- QA-found fixes: FBO bloom smeared screen → 9-tap; ACES tripled blacks →
+  rolloff; corona linear wash → exponential stops.
+- Perf (desktop Playwright): 129→115–137 fps (−11%). 0 game console errors.
+  Tests 176/176 (new: celestial-art 10, postfx-profiles 7).
+- Known non-blocking: spawn-in-void + BH outside playable range recorded as
+  R-006 (out of 06–08 scope, next mission).
 
 ## Physics/visuals fix round (2026-11-08, user brief)
 - ENGINE-ONLY speed caps: Spacecraft clamps each burn to max(pre-burn speed, cap) — regular engine 4000, boost 6000; total velocity is never reduced by the cap, gravity can exceed both. boostLatched drag removed (it bled speed on boost release — the reported bug).

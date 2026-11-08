@@ -39,6 +39,26 @@ Use `docs/templates/DECISION_TEMPLATE.md` for non-trivial decisions. Record cont
   4. **Future backlog (recorded, not scheduled):** speed-scaled edge space-distortion (radial lensing toward max speed, stronger at higher velocity); bloom/RTX-quality lighting on the exhaust and celestial bodies (Phase 08); exhaust complexity tiers for low-end devices.
 - **Evidence:** `EVIDENCE/PHASE_05/P05-T02/flame-full-speed.png`, `flame-partial.png`.
 
+## D-006 — Phase 08 graphics breakthrough: sprites + WebGL postFX (2026-11-09)
+
+- **Context:** Missions 06–08 demand a graphics-immersion breakthrough with
+  mandatory large-scale research before code. Audit showed flat placeholder
+  discs (no granulation/terminator/atmosphere), a simple BH ring, and **no
+  post-processing at all** (warp was 2D tiles only). Spawn is often in void
+  (recorded as R-006).
+- **Decision:** (1) Seeded FBM sprite baking for star/planet/clouds
+  (CPU once, 1 blit/frame) + LOD-wired procedural bases; (2) WebGL2
+  screen-space compositor (warp, BH lensing, shimmer/glare, 9-tap bloom,
+  exact-black rolloff) with quality tiers, reduced-motion gating and a
+  `#postfx=off` fallback. **No HW-RT claims** — everything is labelled
+  screen-space approximation (RESEARCH §5/§6).
+- **Evidence:** A/B proofs (bloom, tonemap), FPS −11%, 176 tests, 0 errors.
+- **Alternatives rejected:** full-screen ray-marched scene (mobile-hostile,
+  useless for a 2D game); FBO bloom chain (smeared screen in QA); ACES on
+  LDR values (tripled blacks in QA).
+- **Revisit:** When Phase 16/17 adds atmosphere/weather profiles, or when a
+  physical Android device exists (R-003) for real mobile numbers.
+
 ## D-005 — Space-distortion requirement analysis (context for D-004 item 4)
 
 - **Context:** The user asked for velocity-scaled space distortion at frame edges. Not urgent.

@@ -46,3 +46,19 @@ Use `docs/templates/RISK_TEMPLATE.md`. Track science, source licensing, renderin
 - **Player impact:** Memorable picture quality is a core success criterion of the project.
 - **Mitigation:** Every graphics-touching task includes lighting/material work in its Definition of Done; ROADMAP phases 6–8, 13, 16–18, 24–25 embed lighting/postFX requirements; quality tiers keep PC and Android performance in budget.
 - **Recheck trigger:** Each phase exit gate; visual audits at normal size and close-up crops.
+
+## R-006 — Spawn in void + invisible landmarks (found in P08 audio audit)
+
+- **Category:** Gameplay / immersion
+- **Risk:** Ship spawns up to ~118 km from the star with a ~450 m view, so
+  the opening screen is empty void; the black hole sits at (180000,-140000)
+  — outside `UNIVERSE_RANGE` (200000) — with no visible cue until metres
+  away. First impression is “nothing here”.
+- **Evidence:** Seed-42 audit (ship at 85668,81716; star r 7763); screenshots
+  EVIDENCE/batch6/44–48.
+- **Player impact:** Core-loop boredom before any discovery; landmarks feel absent.
+- **Mitigation (deferred):** Spawn near the innermost planet orbit + distant
+  star glare/lensing beacon on the HUD compass; BH moved inside the range
+  with a radar marker. Belongs to a navigation mission, not 06–08.
+- **Recheck trigger:** Next gameplay mission kickoff; do not claim the
+  immersion problem is solved by graphics alone.

@@ -62,11 +62,11 @@ Statuses: `PENDING`, `IN_PROGRESS`, `BLOCKED`, `VERIFIED`. Update at each checkp
 
 ## Phase 08 — Ray-marching, optics and contextual screen filters
 **Phase status:** PENDING
-- [ ] `P08-T01` — Technique research and proof scenes — `TASKS/PHASE_08/P08-T01_technique-research-and-proof-scenes.md` — PENDING
-- [ ] `P08-T02` — PostFX compositor — `TASKS/PHASE_08/P08-T02_postfx-compositor.md` — PENDING
-- [ ] `P08-T03` — Optics and light cues — `TASKS/PHASE_08/P08-T03_optics-and-light-cues.md` — PENDING
-- [ ] `P08-T04` — Contextual full-screen profiles — `TASKS/PHASE_08/P08-T04_contextual-full-screen-profiles.md` — PENDING
-- [ ] `P08-T05` — Performance and visual validation — `TASKS/PHASE_08/P08-T05_performance-and-visual-validation.md` — PENDING
+- [x] `P08-T01` — Technique research and proof scenes — `TASKS/PHASE_08/P08-T01_technique-research-and-proof-scenes.md` — VERIFIED
+- [x] `P08-T02` — PostFX compositor — `TASKS/PHASE_08/P08-T02_postfx-compositor.md` — VERIFIED
+- [x] `P08-T03` — Optics and light cues — `TASKS/PHASE_08/P08-T03_optics-and-light-cues.md` — VERIFIED
+- [x] `P08-T04` — Contextual full-screen profiles — `TASKS/PHASE_08/P08-T04_contextual-full-screen-profiles.md` — VERIFIED
+- [x] `P08-T05` — Performance and visual validation — `TASKS/PHASE_08/P08-T05_performance-and-visual-validation.md` — VERIFIED
 
 
 ## Phase 09 — Universe, galaxies and deterministic systems

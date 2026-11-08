@@ -1,7 +1,7 @@
 # P08-T04 — Contextual full-screen profiles
 
 **Phase:** 08 — Ray-marching, optics and contextual screen filters  
-**Status:** PENDING  
+**Status:** VERIFIED  
 **Depends on:** Prior tasks in this phase and prior phase gate.
 
 ## Objective
@@ -30,3 +30,4 @@ Additionally: build/tests pass or a real blocker is documented; the player-facin
 
 ## Completion report
 Record changed files/modules, decision(s), tests actually run, player route and inputs, evidence paths, performance observations, known issues, commit SHA, push status and Pages verification status.
+

@@ -41,13 +41,13 @@ export const LOD_BUDGETS = {
 
 /** Quality tiers (P25-T02 will implement the switch; contracts exist now). */
 export type QualityTier = "high" | "medium" | "low";
-export const QUALITY_FEATURES: Record<QualityTier, { starfield: boolean; dust: boolean }> = {
-    high: { starfield: true, dust: true },
-    medium: { starfield: true, dust: false },
-    low: { starfield: false, dust: false },
+export const QUALITY_FEATURES: Record<QualityTier, { starfield: boolean; dust: boolean; postfxBloom: boolean; postfxDistortion: boolean }> = {
+    high: { starfield: true, dust: true, postfxBloom: true, postfxDistortion: true },
+    medium: { starfield: true, dust: false, postfxBloom: true, postfxDistortion: true },
+    low: { starfield: false, dust: false, postfxBloom: false, postfxDistortion: false },
 };
 
 /** Feature check for a tier (caller skips the pass entirely when off). */
-export function tierHasLayer(tier: QualityTier, layer: "starfield" | "dust"): boolean {
+export function tierHasLayer(tier: QualityTier, layer: "starfield" | "dust" | "postfxBloom" | "postfxDistortion"): boolean {
     return QUALITY_FEATURES[tier][layer];
 }

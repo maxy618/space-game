@@ -49,6 +49,7 @@ import { SCAN_COOLDOWN, SCAN_RADIUS, SCAN_WAVE_SECONDS } from "../universe/Scann
 import { createRoutePilot, pilotStep, type RouteThreat } from "../sim/RoutePilot";
 import { chaseCamera, CAMERA_FOLLOW_RATE, velocityZoomFactor, fisheyeTargetForSpeed, parallaxOffsetPx, wrapTile, DUST_PARALLAX_PX_PER_M, STARFIELD_PARALLAX_PX_PER_M, decayKick, kickMetersForScreenPx } from "../camera/Camera";
 import { newRandom } from "../core/RandomKt";
+import { PostFXCompositor, NEUTRAL_PARAMS, type PostFXParams } from "../render/PostFX";
 
 const TEST_UNIVERSE = false
 
@@ -257,6 +258,36 @@ function Spaaaace(
     const offCanvas = document.createElement("canvas");
     const offCtx = offCanvas.getContext("2d") as CanvasRenderingContext2D;
     let fisheyeSmooth = 0;
+    // P08 PostFX (WebGL2 screen-space compositor, RESEARCH §6): world renders
+    // into offCanvas ALWAYS when enabled, then WebGL composites to a display
+    // canvas stacked exactly over canvasMain (pointer-events: none, so input
+    // still lands on canvasMain). #postfx=off disables (debug/fallback).
+    const postfxWanted = typeof location === "undefined" || !location.hash.includes("postfx=off");
+    let postfx: PostFXCompositor | null = null;
+    let postCanvas: HTMLCanvasElement | null = null;
+    function ensurePostFX(): boolean {
+        if (!postfxWanted) return false;
+        if (postfx && postfx.ready) return true;
+        if (postfx && !postfx.ready) return false;
+        try {
+            postCanvas = document.createElement("canvas");
+            postCanvas.className = "canvas fill";
+            postCanvas.style.pointerEvents = "none";
+            postCanvas.style.zIndex = "1";
+            const mainC = document.getElementById("canvasMain");
+            if (mainC && mainC.parentNode) mainC.parentNode.insertBefore(postCanvas, mainC.nextSibling);
+            postfx = new PostFXCompositor(offCanvas, postCanvas);
+            postfx.reducedMotion = reducedMotion;
+            // default tier: desktop DPR≤2 → high, mobile DPR>2 → medium
+            const dpr = (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
+            postfx.tier = dpr > 2.4 ? "medium" : "high";
+            const tierParam = typeof location === "undefined" ? null : new URLSearchParams(location.hash.substring(1)).get("tier");
+            if (tierParam === "low" || tierParam === "medium" || tierParam === "high" || tierParam === "off") postfx.tier = tierParam;
+            return postfx.ready;
+        } catch {
+            return false;
+        }
+    }
     let kickX = 0;
     let kickY = 0;
     const KICK_DECAY_RATE = 6; // per second → ~0.5 s visible kick
@@ -486,9 +517,13 @@ function Spaaaace(
         } else {
             fisheyeSmooth = 0;
         }
+        const usePostFX = ensurePostFX();
         const warpActive = fisheyeSmooth > 0.01;
-        const drawCtx = warpActive ? offCtx : context;
-        if (warpActive) {
+        // With postFX on, the world ALWAYS renders into offCanvas (the WebGL
+        // source). The shader applies the warp itself — the old 2D tile
+        // fisheye is skipped to avoid double distortion.
+        const drawCtx = (usePostFX || warpActive) ? offCtx : context;
+        if (usePostFX || warpActive) {
             if (offCanvas.width !== canvasWidth) offCanvas.width = canvasWidth;
             if (offCanvas.height !== canvasHeight) offCanvas.height = canvasHeight;
         }
@@ -771,8 +806,34 @@ function Spaaaace(
 
         w2.restore();
 
-        // Fisheye blit: radial barrel mapping offscreen → screen, tile by tile.
-        if (warpActive) {
+        // P08 WebGL composite (or legacy 2D fisheye when postFX is off).
+        if (usePostFX && postfx && postCanvas) {
+            if (postCanvas.width !== canvasWidth) postCanvas.width = canvasWidth;
+            if (postCanvas.height !== canvasHeight) postCanvas.height = canvasHeight;
+            postfx.resize();
+            const toUV = (wx: number, wy: number): [number, number] => [
+                (wx - helper.x) / helper.width,
+                (wy - helper.y) / helper.height,
+            ];
+            const [bhu, bhv] = toUV(180000, -140000);
+            const [starU, starV] = toUV(u.star.pos.x, u.star.pos.y);
+            const bhDist = Math.hypot(u.ship.pos.x - 180000, u.ship.pos.y + 140000);
+            const params: PostFXParams = {
+                ...NEUTRAL_PARAMS,
+                warp: fisheyeSmooth / 0.6,
+                blackHole: bhDist < 2600 * 8 ? clamp(1 - bhDist / (2600 * 8), 0, 1) : 0,
+                starHeat: (u as { starProximity?: number }).starProximity ?? 0,
+                bhU: bhu, bhV: bhv,
+                bhRadius: (2600 / helper.width) * 0.5,
+                starU, starV,
+                time: performance.now() / 1000,
+            };
+            const ok = postfx.render(params);
+            if (!ok) {
+                context.drawImage(offCanvas, 0, 0);
+            }
+        } else if (warpActive) {
+            // Fisheye blit: radial barrel mapping offscreen → screen, tile by tile.
             const cx = canvasWidth / 2;
             const cy = canvasHeight / 2;
             const R = Math.hypot(cx, cy);

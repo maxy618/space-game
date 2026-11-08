@@ -34,7 +34,7 @@ import { LOG } from "../core/Debug";
 import { drawFlag } from "../core/Flag15";
 import { lerp } from "../core/MathHelpers";
 import { Namer15 } from "../core/Namer15";
-import { createPolygon, drawPolygon, parseSvgPathData } from "../core/PathTools";
+import { createPolygon, createStar, drawPolygon, parseSvgPathData } from "../core/PathTools";
 import { Constraint, Container, Simulator } from "../core/Physics";
 import { chooseRandom } from "../core/Randomness";
 import { Asteroid, CargoShip, Landing, Planet, Spacecraft, Spark, SparkStyle, Star, StarClass, StarClasses, Track, UniverseConst } from "../universe/Universe";
@@ -44,6 +44,9 @@ import { Landing15, Spacecraft15 } from "../universe/Universe15";
 import { Vec2, Vec2_angle, Vec2_copy, Vec2_makeWithAngleMag } from "../core/Vec2";
 import { clamp } from "../core/Maths";
 import { VisibleUniverse, ZoomedDrawScope } from "./VisibleUniverse";
+import { bakeStarSprite, bakePlanetSurface, bakePlanetClouds } from "./SpriteBaker";
+import { starPaletteFor, planetPaletteFor, sunDirection } from "./CelestialArt";
+import { lodFor } from "../camera/Lod";
 
 const solveSimulator = Simulator.prototype.solveAll;
 
@@ -54,6 +57,222 @@ const sqrt = Math.sqrt;
 export class ZoomedDrawScope15 extends ZoomedDrawScope {
     readonly spaceshipLegs = parseSvgPathData("\nM-7   -6.5\nl-3.5  0\nl-1   -2\nl 0    4\nl 1   -2\nZ\nM-7    6.5\nl-3.5  0\nl-1   -2\nl 0    4\nl 1   -2\nZ\n")
     readonly thrustPath = createPolygon(-3, 3, -5, 0);
+
+    // P07/P08 baked sprites (seeded, deterministic, 1 blit per body per frame)
+    private starSprites = new Map<string, HTMLCanvasElement>();
+    private planetSprites = new Map<string, HTMLCanvasElement>();
+    private cloudSprites = new Map<string, HTMLCanvasElement>();
+    /** Star position for sun-direction lighting (set each frame). */
+    litStar = { x: 0, y: 0 };
+    private starSprite(cls: number): HTMLCanvasElement {
+        const key = "s" + cls;
+        let sp = this.starSprites.get(key);
+        if (!sp) { sp = bakeStarSprite(cls, (cls + 1) * 0.12345); this.starSprites.set(key, sp); }
+        return sp;
+    }
+    private planetSprite(planet: Planet): HTMLCanvasElement {
+        const key = "p" + planet.id;
+        let sp = this.planetSprites.get(key);
+        if (!sp) { sp = bakePlanetSurface(planet.visualSeed || (planet.id * 0.137) % 1); this.planetSprites.set(key, sp); }
+        return sp;
+    }
+    private cloudSprite(planet: Planet): HTMLCanvasElement {
+        const key = "c" + planet.id;
+        let sp = this.cloudSprites.get(key);
+        if (!sp) { sp = bakePlanetClouds(planet.visualSeed || (planet.id * 0.137) % 1); this.cloudSprites.set(key, sp); }
+        return sp;
+    }
+
+    /** P07-T01/P08: star with granulation sprite + additive corona (bloom source). */
+    drawStar(star: Star) {
+        const context = this.context;
+        const helper = this.helper;
+        if (!helper.width) return;
+        const dCssPx = star.radius * 2 * this.zoom;
+        const lod = lodFor(dCssPx);
+        const pal = starPaletteFor(star.cls);
+        // corona (additive, exponential-style falloff, 2 rings)
+        context.save();
+        context.globalCompositeOperation = "lighter";
+        const glow = (mult: number, alpha: number, col: string) => {
+            const g = context.createRadialGradient(star.pos.x, star.pos.y, star.radius * 0.55, star.pos.x, star.pos.y, star.radius * mult);
+            // exponential-style falloff (RESEARCH §2): bright at limb, fast
+            // decay — the old linear stops washed the whole screen near the star.
+            g.addColorStop(0, col + alpha + ")");
+            g.addColorStop(0.18, col + (alpha * 0.42) + ")");
+            g.addColorStop(0.38, col + (alpha * 0.13) + ")");
+            g.addColorStop(0.7, col + (alpha * 0.03) + ")");
+            g.addColorStop(1, col + "0)");
+            context.fillStyle = g;
+            context.beginPath();
+            context.arc(star.pos.x, star.pos.y, star.radius * mult, 0, PI * 2);
+            context.fill();
+        };
+        const tight = pal.coronaTight;
+        glow(1.9 - tight * 0.5, 0.95, pal.corona);
+        glow(3.4 - tight, 0.30, pal.corona);
+        glow(6.5 - tight * 2, 0.08, pal.corona);
+        context.restore();
+        // disc: macro = glow disc, fine/micro = baked sprite (sharp
+        // procedural base at extreme close-up, where the sprite would blur).
+        if (lod === "macro") {
+            helper.fillCircle(star.color, star.pos.x, star.pos.y, star.radius);
+            helper.drawCircle("rgba(255,255,255,0.85)", 2 / this.zoom, star.pos.x, star.pos.y, star.radius);
+        } else if (dCssPx > 1400) {
+            // micro: procedural radial base (resolution-independent) + blotches
+            const g = context.createRadialGradient(star.pos.x, star.pos.y, 0, star.pos.x, star.pos.y, star.radius);
+            g.addColorStop(0, pal.core);
+            g.addColorStop(0.55, pal.mid);
+            g.addColorStop(0.92, pal.rim);
+            g.addColorStop(1, pal.rim);
+            context.fillStyle = g;
+            context.beginPath(); context.arc(star.pos.x, star.pos.y, star.radius, 0, PI * 2); context.fill();
+            // granulation blotches + sunspots (seeded, screen-sharp)
+            context.save();
+            context.beginPath(); context.arc(star.pos.x, star.pos.y, star.radius, 0, PI * 2); context.clip();
+            const t = star.anim * 0.02;
+            context.globalAlpha = 0.16;
+            context.fillStyle = pal.core;
+            for (let i = 0; i < 26; i++) {
+                const a = (i * 2.39996 + t) % (PI * 2);
+                const dd = star.radius * (0.12 + (i % 7) * 0.11);
+                const rr = star.radius * (0.05 + (i % 5) * 0.022);
+                context.beginPath();
+                context.arc(star.pos.x + Math.cos(a) * dd, star.pos.y + Math.sin(a) * dd, rr, 0, PI * 2);
+                context.fill();
+            }
+            context.globalAlpha = 0.5;
+            context.fillStyle = "rgba(50,20,10,1)";
+            const nSpots = Math.round(pal.spotAmt * 9);
+            for (let i = 0; i < nSpots; i++) {
+                const a = (i * 1.7 + 0.4) % (PI * 2);
+                const dd = star.radius * (0.25 + (i % 4) * 0.16);
+                const rr = star.radius * (0.03 + (i % 3) * 0.018);
+                context.beginPath();
+                context.arc(star.pos.x + Math.cos(a) * dd, star.pos.y + Math.sin(a) * dd, rr, 0, PI * 2);
+                context.fill();
+            }
+            context.restore();
+        } else {
+            const sp = this.starSprite(star.cls);
+            const diam = star.radius * 2;
+            context.save();
+            context.translate(star.pos.x, star.pos.y);
+            context.rotate(star.anim * 0.01);
+            context.drawImage(sp, -star.radius, -star.radius, diam, diam);
+            context.restore();
+        }
+        // rotating flare spikes (fine+ only, subtle)
+        if (lod === "fine" || lod === "micro") {
+            context.save();
+            context.translate(star.pos.x, star.pos.y);
+            context.rotate(star.anim / 23 * PI * 2);
+            context.strokeStyle = pal.corona + "0.55)";
+            context.lineWidth = 2.2 / this.zoom;
+            context.lineJoin = "round";
+            context.stroke(createStar(star.radius + 60, star.radius + 200, 31));
+            context.rotate(star.anim / -19 * PI * 2);
+            context.stroke(createStar(star.radius + 20, star.radius + 150, 32));
+            context.restore();
+        }
+    }
+
+    /** P07-T02/P08: planet with baked surface, terminator, atmosphere rim, clouds, rings. */
+    drawPlanet(planet: Planet) {
+        const context = this.context;
+        const helper = this.helper;
+        const px = planet.pos.x;
+        const py = planet.pos.y;
+        const r = planet.radius;
+        // cull
+        if (!helper.width) return;
+        const left = helper.x, top = helper.y, right = left + helper.width, bottom = top + helper.height;
+        if (px + r * 3 < left || px - r * 3 > right || py + r * 3 < top || py - r * 3 > bottom) return;
+        const dCssPx = r * 2 * this.zoom;
+        const lod = lodFor(dCssPx);
+        const pal = planetPaletteFor(planet.visualSeed || (planet.id * 0.137) % 1);
+        const sun = sunDirection(px, py, this.litStar.x, this.litStar.y);
+        // ring back-half (behind the planet)
+        if (lod !== "macro" && pal.hasRings) {
+            context.save();
+            context.translate(px, py);
+            context.scale(1, 0.32);
+            context.strokeStyle = "rgba(220,200,170,0.5)";
+            context.lineWidth = r * 0.3;
+            context.setLineDash([r * 0.18, r * 0.07, r * 0.3, r * 0.1]);
+            context.beginPath(); context.arc(0, 0, r * 1.55, 0, PI); context.stroke();
+            context.restore();
+        }
+        // surface
+        if (lod === "macro") {
+            context.fillStyle = planet.color;
+            context.globalAlpha = 0.9;
+            context.beginPath(); context.arc(px, py, r, 0, PI * 2); context.fill();
+            context.globalAlpha = 1;
+            helper.drawCircle(planet.color, 1.5 / this.zoom, px, py, r);
+        } else {
+            const sp = this.planetSprite(planet);
+            context.save();
+            context.drawImage(sp, px - r, py - r, r * 2, r * 2);
+            context.restore();
+            // terminator: soft night side opposite the sun + sunset band
+            {
+                const nx = px - sun.x * r * 0.42;
+                const ny = py - sun.y * r * 0.42;
+                const g = context.createRadialGradient(nx, ny, r * 0.15, nx, ny, r * 1.05);
+                g.addColorStop(0, "rgba(4,4,14,0.82)");
+                g.addColorStop(0.55, "rgba(6,6,20,0.55)");
+                g.addColorStop(0.82, "rgba(20,14,30,0.18)");
+                g.addColorStop(1, "rgba(0,0,0,0)");
+                context.save();
+                context.beginPath(); context.arc(px, py, r, 0, PI * 2); context.clip();
+                context.fillStyle = g;
+                context.fillRect(px - r, py - r, r * 2, r * 2);
+                context.restore();
+            }
+            // clouds (slow rotation, fine+ only)
+            if (lod === "fine" || lod === "micro") {
+                const csp = this.cloudSprite(planet);
+                const t = performance.now() / 1000;
+                context.save();
+                context.beginPath(); context.arc(px, py, r, 0, PI * 2); context.clip();
+                context.translate(px, py);
+                context.rotate(Math.sin(t * 0.02 + planet.id) * 0.15);
+                context.globalAlpha = 0.8;
+                context.drawImage(csp, -r * 1.08, -r * 1.08, r * 2.16, r * 2.16);
+                context.restore();
+            }
+        }
+        // atmosphere rim (additive, day-side stronger) — P08 light cue
+        if (pal.hasAtmo || pal.hasOcean) {
+            const atmo = pal.atmo.startsWith("rgba") ? pal.atmo : pal.atmo;
+            context.save();
+            context.globalCompositeOperation = "lighter";
+            const rimW = r * 0.14;
+            const g = context.createRadialGradient(px, py, r * 0.98, px, py, r + rimW);
+            const base = atmo.startsWith("rgba") ? "rgba(180,180,220," : atmo.startsWith("#") ? null : "rgba(120,160,230,";
+            const c0 = base ? base + "0.55)" : pal.atmo;
+            const c1 = base ? base + "0)" : pal.atmo;
+            g.addColorStop(0, c0);
+            g.addColorStop(1, c1);
+            context.fillStyle = g;
+            context.beginPath(); context.arc(px, py, r + rimW, 0, PI * 2); context.fill();
+            context.restore();
+        }
+        // ring front-half
+        if (lod !== "macro" && pal.hasRings) {
+            context.save();
+            context.translate(px, py);
+            context.scale(1, 0.32);
+            context.strokeStyle = "rgba(235,215,185,0.75)";
+            context.lineWidth = r * 0.3;
+            context.setLineDash([r * 0.18, r * 0.07, r * 0.3, r * 0.1]);
+            context.beginPath(); context.arc(0, 0, r * 1.55, 0, PI); context.stroke();
+            context.restore();
+        }
+        // orbit line (kept, subtle)
+        helper.drawCircle("rgba(0,255,255,0.28)", 1 / this.zoom, planet.orbitCenter.x, planet.orbitCenter.y, planet.pos.distance(planet.orbitCenter));
+    }
 
     // Deterministic nebula macroform (P07-T03): seeded once at construction.
     // Three overlapping rotated blobs near the system core, drawn at low
@@ -275,6 +494,8 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         // the far side of the playable space so players can fly up to it and
         // inspect the event-horizon silhouette + accretion disc + lensing cue.
         this.drawBlackHoleMark(180000, -140000, 2600);
+        this.litStar.x = universe.star.pos.x;
+        this.litStar.y = universe.star.pos.y;
         universe.constraints.forEach(it => {
             if (it instanceof Landing) {
                 this.drawLanding(it);
@@ -567,35 +788,76 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         const right = left + helper.width;
         const bottom = top + helper.height;
         if (bx + br * 3 < left || bx - br * 3 > right || by + br * 3 < top || by - br * 3 > bottom) return;
-        // lensing glow (soft halo)
-        context.fillStyle = "rgba(255,180,90,0.10)";
-        context.beginPath();
-        context.arc(bx, by, br * 1.55, 0, PI * 2);
-        context.fill();
-        context.fillStyle = "rgba(255,150,60,0.10)";
-        context.beginPath();
-        context.arc(bx, by, br * 1.28, 0, PI * 2);
-        context.fill();
-        // accretion disc (squashed ring crossing in front)
+        const t = performance.now() / 1000;
+        // lensing glow (soft halo, additive for bloom)
         context.save();
+        context.globalCompositeOperation = "lighter";
+        const halo = (mult: number, a: number) => {
+            const g = context.createRadialGradient(bx, by, br * 0.8, bx, by, br * mult);
+            g.addColorStop(0, "rgba(255,180,90," + a + ")");
+            g.addColorStop(1, "rgba(255,150,60,0)");
+            context.fillStyle = g;
+            context.beginPath(); context.arc(bx, by, br * mult, 0, PI * 2); context.fill();
+        };
+        halo(2.6, 0.28);
+        halo(1.7, 0.32);
+        // accretion disc: textured ellipse, Doppler ramp (approaching side
+        // brighter/bluer), differential rotation via moving dash offset.
         context.translate(bx, by);
         context.scale(1, 0.34);
-        context.strokeStyle = "rgba(255,190,110,0.85)";
-        context.lineWidth = 90 / this.zoom;
-        context.beginPath();
-        context.arc(0, 0, br * 1.35, 0, PI * 2);
-        context.stroke();
+        const discBand = (rr: number, w: number, col: string) => {
+            context.strokeStyle = col;
+            context.lineWidth = w / this.zoom;
+            context.beginPath(); context.arc(0, 0, rr, 0, PI * 2); context.stroke();
+        };
+        const rot = t * 0.12;
+        // outer cool band
+        discBand(br * 2.4, br * 0.5, "rgba(180,90,40,0.35)");
+        // mid hot band
+        discBand(br * 1.75, br * 0.42, "rgba(255,190,110,0.65)");
+        // inner white-hot band (Doppler: left side brighter)
+        context.save();
+        context.rotate(rot * 0.2);
+        context.setLineDash([br * 0.35, br * 0.18]);
+        discBand(br * 1.35, br * 0.26, "rgba(255,240,210,0.9)");
         context.restore();
-        // event-horizon shadow
+        context.setLineDash([]);
+        // doppler boost gradient on the front arc
+        const dg = context.createLinearGradient(-br * 2.4, 0, br * 2.4, 0);
+        dg.addColorStop(0, "rgba(170,210,255,0.28)");
+        dg.addColorStop(0.5, "rgba(255,220,170,0.05)");
+        dg.addColorStop(1, "rgba(255,140,70,0.18)");
+        context.strokeStyle = dg;
+        context.lineWidth = br * 0.32;
+        context.beginPath(); context.arc(0, 0, br * 1.5, 0, PI * 2); context.stroke();
+        context.restore();
+        // jets along the rotation axis (faint, additive)
+        context.save();
+        context.globalCompositeOperation = "lighter";
+        const jet = (dirY: number) => {
+            const g = context.createLinearGradient(bx, by, bx, by + dirY * br * 5);
+            g.addColorStop(0, "rgba(170,200,255,0.30)");
+            g.addColorStop(1, "rgba(170,200,255,0)");
+            context.fillStyle = g;
+            context.beginPath();
+            context.moveTo(bx - br * 0.12, by);
+            context.lineTo(bx + br * 0.12, by);
+            context.lineTo(bx + br * 0.5, by + dirY * br * 5);
+            context.lineTo(bx - br * 0.5, by + dirY * br * 5);
+            context.closePath(); context.fill();
+        };
+        jet(-1); jet(1);
+        context.restore();
+        // event-horizon shadow (pure black, on top of disc centre)
         context.fillStyle = "#000000";
         context.beginPath();
         context.arc(bx, by, br, 0, PI * 2);
         context.fill();
-        // photon rim
-        context.strokeStyle = "rgba(255,240,220,0.9)";
-        context.lineWidth = 3 / this.zoom;
+        // photon rim (thin bright ring at ~1.6 r_s visual)
+        context.strokeStyle = "rgba(255,244,224,0.95)";
+        context.lineWidth = Math.max(1.2 / this.zoom, br * 0.02);
         context.beginPath();
-        context.arc(bx, by, br, 0, PI * 2);
+        context.arc(bx, by, br * 1.06, 0, PI * 2);
         context.stroke();
     }
     drawSpacecraft(ship: Spacecraft) {
