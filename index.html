@@ -177,6 +177,35 @@
       transform: translateX(-50%) translateY(0);
     }
 
+    /* Landing assist button (user 2026-11-09): bottom-left, thumb range. */
+    #landButton {
+      position: fixed;
+      left: calc(14px + var(--safe-left));
+      bottom: calc(24px + var(--safe-bottom));
+      width: 64px;
+      height: 64px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(22, 22, 29, 0.72);
+      border: 1px solid var(--color-Eigengrau3);
+      border-radius: 16px;
+      cursor: pointer;
+      z-index: 40;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #landButton:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+    #landButton.armed {
+      border-color: #9ED8A4;
+      box-shadow: 0 0 12px rgba(110, 200, 130, 0.3);
+    }
+    #landButton svg { display: block; }
+
     /* Boost burner: the ONE enlarged action button (user 2026-11-09: 84px,
        1.5Г— the other buttons) вЂ” primary gesture, thumb-reachable in the
        bottom-right corner, same monochrome geometry language as pause. */
@@ -1007,6 +1036,18 @@
     <svg width="32" height="32" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <rect x="6.6" y="5.4" width="3.2" height="11.2" rx="1.6" fill="#B7B7FF" />
       <rect x="12.2" y="5.4" width="3.2" height="11.2" rx="1.6" fill="#B7B7FF" />
+    </svg>
+  </button>
+
+  <!-- Landing / interaction (user 2026-11-09): appears near a body; the
+       tap runs a smooth AUTOMATIC touchdown (brake, approach, descend).
+       Takes over like the safety shield while running. -->
+  <button id="landButton" type="button" aria-label="Land">
+    <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.6" fill="none" stroke="#7A7A9E" stroke-width="1.4"/>
+      <path d="M12 5 V14" stroke="#B7B7FF" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M8.4 11 L12 14.6 L15.6 11" fill="none" stroke="#B7B7FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="6" y1="18.6" x2="18" y2="18.6" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
     </svg>
   </button>
 

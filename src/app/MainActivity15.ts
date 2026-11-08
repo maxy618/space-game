@@ -919,8 +919,10 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         // two concentric invisible rings around the ship: the near bar (ship
         // heading, button color) and the far bar (stick, white). Directed
         // collinearly they dock into one perfect line = straight flight.
-        const ringNear = 30 * dpr;
-        const ringFar = 46 * dpr;
+        // THIN and SHORT (user 2026-11-09), close to the hull, docking
+        // tight (user 2026-11-09).
+        const ringNear = 25 * dpr;
+        const ringFar = 40 * dpr;
         const tick = (ring: number, ang: number, color: string) => {
             context.save();
             context.translate(sx + Math.cos(ang) * ring, sy + Math.sin(ang) * ring);
@@ -928,7 +930,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             context.fillStyle = color;
             context.globalAlpha = stickBarsAlpha * 0.95;
             context.beginPath();
-            context.roundRect(-16 * dpr, -3.2 * dpr, 32 * dpr, 6.4 * dpr, 3.2 * dpr);
+            context.roundRect(-6 * dpr, -1.2 * dpr, 12 * dpr, 2.4 * dpr, 1.2 * dpr);
             context.fill();
             context.restore();
         };
@@ -2235,10 +2237,13 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         // OR (b) braking is ALREADY insufficient — must act NOW (evasion).
         const dv = Math.max(0, spd0 - 500);
         const brakeDist = (dv * dv) / (2 * Math.max(1, ship.profile.engineAccel));
-        // start SHORT of the ragged edge: 60% margin (turning dwell eats the
-        // rest — a retro brake needs ~0.5-1s to swing the nose around).
-        const brakingSaves = brakeDist <= t.tti * spd0 * 0.6;
-        if (t.tti > 2.0 && brakingSaves) return;
+        // Full brake start ≈ braking time to 500 + nose swing dwell. The
+        // LATEST survivable moment: engage then; before that the player
+        // keeps the warning for themselves (last seconds, like promised).
+        const impactDist = t.tti * spd0;
+        const dwell = 900; // nose swing eats ~0.5-1s of margin
+        const brakingSaves = brakeDist + dwell <= impactDist * 0.85;
+        if (t.tti > 4.0 && brakingSaves) return;
         const mode: "brake" | "evade" = brakingSaves ? "brake" : "evade";
         safeMode = mode;
         setSafeHold(true);
