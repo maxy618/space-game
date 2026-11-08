@@ -357,9 +357,6 @@
     #radarButton {
       position: fixed;
       top: calc(84px + var(--safe-top)); /* right UNDER the pause button */
-    #autoPilotButton {
-      position: fixed;
-      top: calc(84px + var(--safe-top)); /* РїРѕРґ РїР°СѓР·РѕР№ (user 2026-11-09) */
       right: calc(14px + var(--safe-right));
       width: 56px;
       height: 56px;
@@ -375,16 +372,6 @@
       transition: background 0.15s, border-color 0.15s, transform 0.1s;
       -webkit-tap-highlight-color: transparent;
     }
-    #autoPilotButton:active { transform: translateY(1px); background: rgba(60,60,76,0.9); border-color: var(--color-Eigengrau4); }
-    #autoPilotButton.engaged {
-      border-color: #4E9E5F;
-      background: rgba(46, 66, 52, 0.9);
-    }
-    #autoPilotButton.stopped {
-      border-color: rgba(232, 72, 56, 0.7);
-      background: rgba(66, 40, 40, 0.9);
-    }
-    #autoPilotButton svg { display: block; }
     #scanButton:active, #radarButton:active {
       transform: translateY(1px);
       background: rgba(60, 60, 76, 0.9);
