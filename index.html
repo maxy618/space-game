@@ -422,6 +422,38 @@
     #scanHint { color: #D8A84E; }
     #scanResult { color: #9ED8A4; }
     #scanResult small { color: var(--color-Eigengrau4); }
+    /* Scan results stack (user 2026-11-09): short cards, one per type,
+       appearing sequentially under the top HUD text, never overlapping it. */
+    #scanResults {
+      position: fixed;
+      left: 50%;
+      top: calc(112px + var(--safe-top));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      z-index: 42;
+      pointer-events: none;
+      transform: translateX(-50%);
+    }
+    .scan-result-row {
+      padding: 6px 12px;
+      font-family: "Roboto Mono", monospace;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      color: #9ED8A4;
+      background: rgba(22, 22, 29, 0.92);
+      border: 1px solid var(--color-Eigengrau3);
+      border-radius: 8px;
+      animation: scanRowIn 0.3s ease both;
+    }
+    @keyframes scanRowIn {
+      from { opacity: 0; transform: translateY(-5px); }
+      to { opacity: 1; transform: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .scan-result-row { animation: none; }
+    }
     /* Stellar heat banner: amber approach warning; red + Tв€’ clock when the
        hot-zone countdown runs. */
     #heatBanner {
@@ -900,6 +932,7 @@
   <!-- Scan feedback banners (top-center console strips). -->
   <div id="scanHint">SIGNAL TOO WEAK вЂ” SLOW BELOW <span id="scanHintNum">500</span> m/s</div>
   <div id="scanResult"></div>
+  <div id="scanResults" aria-live="polite"></div>
 
   <!-- Stellar heat banner (amber warning в†’ red countdown, driven per frame). -->
   <div id="heatBanner" role="alert" aria-live="assertive">

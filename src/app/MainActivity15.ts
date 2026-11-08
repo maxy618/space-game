@@ -556,27 +556,34 @@ function Spaaaace(
                 }
                 w2.globalAlpha = 1;
             };
-            // galaxies first (deepest): pre-rendered spiral sprites.
-            // PER-TILE hash placement (user 2026-11-09): every tile gets its
-            // own random members/positions/sizes/rotations — the old fixed
-            // layout repeated identically every 512 px and read as a grid.
+            // galaxies (deep sky, deepest layer): CONTINUOUS fixed field —
+            // each spiral has a stable position with slow parallax, so they
+            // glide steadily and never pop in/out at tile boundaries (the
+            // per-tile hash used before made galaxies blink "appear/vanish").
             {
                 const gox = -parallaxOffsetPx(chaseX, dpr, STARFIELD_PARALLAX_PX_PER_M * 0.6);
                 const goy = -parallaxOffsetPx(chaseY, dpr, STARFIELD_PARALLAX_PX_PER_M * 0.6);
-                for (let tx = 0; tx < tilesX; tx++) {
-                    for (let ty = 0; ty < tilesY; ty++) {
-                        for (let i = 0; i < 2; i++) { // ≤2 galaxies per tile
-                            const pick = tileHash(tx, ty, i);
-                            if (pick > 0.5) continue; // sparser than before (was all 3 per tile)
-                            const sprite = galaxies[Math.floor(tileHash(tx, ty, i + 91) * galaxies.length) % galaxies.length];
-                            const size = (6 + tileHash(tx, ty, i + 37) * 22) * dpr;
-                            const wx = wrapTile(tileHash(tx, ty, i + 11) * tile + gox, tile) + tx * tile;
-                            const wy = wrapTile(tileHash(tx, ty, i + 23) * tile + goy, tile) + ty * tile;
+                const P = 2800; // fixed field period (px at dpr=1)
+                for (let i = 0; i < galaxies.length; i++) {
+                    const g = galaxies[i];
+                    const base = tileHash(0, 0, i * 7 + 3); // stable per galaxy
+                    // ~55% density: skip some (sparse sky), others stay fixed
+                    if (tileHash(0, 0, i * 13 + 5) > 0.55) continue;
+                    const gx0 = tileHash(0, 0, i * 17 + 11) * P;
+                    const gy0 = tileHash(0, 0, i * 19 + 13) * P;
+                    const size = (g.rx * 3.4) * dpr;
+                    const rot = tileHash(0, 0, i * 23 + 17) * PI * 2;
+                    const alpha = 0.16 + tileHash(0, 0, i * 29 + 19) * 0.2;
+                    for (let tx = -1; tx <= tilesX; tx++) {
+                        for (let ty = -1; ty <= tilesY; ty++) {
+                            const wx = wrapTile(gx0 + gox, P) + tx * P;
+                            const wy = wrapTile(gy0 + goy, P) + ty * P;
+                            if (wx < -size || wy < -size || wx > canvasWidth + size || wy > canvasHeight + size) continue;
                             w2.save();
                             w2.translate(wx, wy);
-                            w2.rotate(tileHash(tx, ty, i + 51) * PI * 2);
-                            w2.globalAlpha = 0.12 + tileHash(tx, ty, i + 67) * 0.2;
-                            w2.drawImage(sprite.sprite, -size / 2, -size / 2, size, size);
+                            w2.rotate(rot);
+                            w2.globalAlpha = alpha;
+                            w2.drawImage(g.sprite, -size / 2, -size / 2, size, size);
                             w2.restore();
                         }
                     }
@@ -1016,17 +1023,26 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const fx = universe.ship.pos.x;
         const fy = universe.ship.pos.y;
         const res = universe.triggerScan();
-        if (res.total > 0 && scanResult) {
-            // results banner: ONLY new finds, nothing at all when zero —
-            // short form "PLANET ×2 · ASTEROID ×260" (user 2026-11-09).
-            const parts: string[] = [];
-            if (res.planets > 0) parts.push("PLANET ×" + res.planets);
-            if (res.asteroids > 0) parts.push("ASTEROID ×" + res.asteroids);
-            if (res.else_ > 0) parts.push("OBJECT ×" + res.else_);
-            scanResult.textContent = parts.join(" · ");
-            scanResult.classList.add("active");
-            if (scanResultTimer !== null) window.clearTimeout(scanResultTimer);
-            scanResultTimer = window.setTimeout(() => scanResult.classList.remove("active"), 3200);
+        if (res.total > 0) {
+            // stacked short cards under the top text (user 2026-11-09): one
+            // card per type, appearing sequentially, each auto-removes.
+            const rows: string[] = [];
+            if (res.planets > 0) rows.push("PLANET ×" + res.planets);
+            if (res.asteroids > 0) rows.push("ASTEROID ×" + res.asteroids);
+            if (res.else_ > 0) rows.push("OBJECT ×" + res.else_);
+            const stack = document.getElementById("scanResults");
+            if (stack) {
+                stack.replaceChildren();
+                rows.forEach((txt, i) => {
+                    const el = document.createElement("div");
+                    el.className = "scan-result-row";
+                    el.textContent = txt;
+                    el.style.animationDelay = (i * 0.35) + "s";
+                    stack.appendChild(el);
+                    window.setTimeout(() => el.remove(), 3400 + i * 350);
+                });
+            }
+            if (scanResult) scanResult.textContent = rows.join(" · ");
         }
         // mark the footprint (colored zone on the radar, even with no finds)
         scannedZones.push({ x: fx, y: fy, r: SCAN_RADIUS });
@@ -1330,9 +1346,12 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 }
                 if (clash) continue;
                 placedLabels.push({ x0, y0, x1, y1 });
-                // soft plate under the text so it stays readable over the grid
-                ctx2.fillStyle = "rgba(10,10,16,0.55)";
+                // solid contrasting plate — text readable over any grid
+                ctx2.fillStyle = "rgba(8,8,13,0.88)";
                 ctx2.fillRect(x0, y0, x1 - x0, y1 - y0);
+                ctx2.strokeStyle = "rgba(167,167,202,0.4)";
+                ctx2.lineWidth = 1;
+                ctx2.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0 - 1, y1 - y0 - 1);
                 ctx2.fillStyle = L.color;
                 ctx2.fillText(L.text, L.x, L.y);
             }
@@ -1357,9 +1376,12 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 }
                 if (clash) continue;
                 placedLabels.push({ x0, y0, x1, y1 });
-                ctx2.fillStyle = "rgba(10,10,16,0.55)";
+                ctx2.fillStyle = "rgba(8,8,13,0.88)";
                 ctx2.fillRect(x0, y0, x1 - x0, y1 - y0);
-                ctx2.fillStyle = "rgba(196,180,150,0.9)";
+                ctx2.strokeStyle = "rgba(196,180,150,0.4)";
+                ctx2.lineWidth = 1;
+                ctx2.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0 - 1, y1 - y0 - 1);
+                ctx2.fillStyle = "rgba(196,180,150,0.95)";
                 ctx2.fillText(L.text, x0 + 2, y1 - 3);
             }
         }

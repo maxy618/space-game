@@ -241,7 +241,11 @@ export class Asteroid extends Body {
         this.angle += this.spin * dt;
         super.update(sim, dt);
     }
-    /** Distance from center to the polygon surface along angle a (world). */
+    /** Distance from center to the polygon surface along angle a (world).
+     * Must EXACTLY match drawAsteroid (VisibleUniverse15): the rendered
+     * vertex is (cos(a)*rr, sin(a)*rr*0.85) — including the 0.85 vertical
+     * SQUASH (user 2026-11-09: without it the ship landed on air in Y and
+     * dug into the rock where the face is fatter). */
     surfaceDistance(a: number): number {
         const local = a - this.angle;
         const verts = this.radii.length;
@@ -252,11 +256,37 @@ export class Asteroid extends Body {
         const step = (PI * 2) / verts;
         const i = Math.floor(ang / step) % verts;
         const a0 = i * step;
-        const a1 = (i + 1) * step;
         const r0 = this.radius * this.radii[i];
         const r1 = this.radius * this.radii[(i + 1) % verts];
         const t = (ang - a0) / step;
-        return r0 + (r1 - r0) * t;
+        const rr = r0 + (r1 - r0) * t;
+        // squash-aware distance: |(cos, sin*0.85)| * rr
+        const sx = Math.cos(ang);
+        const sy = Math.sin(ang) * 0.85;
+        return rr * Math.sqrt(sx * sx + sy * sy);
+    }
+    /** World angle of the outward FACE NORMAL at local direction a (world) —
+     * the ship stands perpendicular to the face, not to the radius. */
+    surfaceNormal(a: number): number {
+        const verts = this.radii.length;
+        if (verts === 0) return a;
+        const local = a - this.angle;
+        let ang = local % (PI * 2);
+        if (ang < 0) ang += PI * 2;
+        const step = (PI * 2) / verts;
+        const i = Math.floor(ang / step) % verts;
+        const a0 = i * step;
+        const a1 = (i + 1) * step;
+        const p0 = [Math.cos(a0) * this.radius * this.radii[i], Math.sin(a0) * this.radius * this.radii[i] * 0.85];
+        const p1 = [Math.cos(a1) * this.radius * this.radii[(i + 1) % verts], Math.sin(a1) * this.radius * this.radii[(i + 1) % verts] * 0.85];
+        // edge direction + outward normal (turn right side away from centroid)
+        const ex = p1[0] - p0[0];
+        const ey = p1[1] - p0[1];
+        let nx = ey;
+        let ny = -ex;
+        const mid = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
+        if (nx * mid[0] + ny * mid[1] < 0) { nx = -nx; ny = -ny; }
+        return Math.atan2(ny, nx) + this.angle;
     }
 }
 
@@ -857,22 +887,40 @@ export class Landing implements Constraint {
     readonly angle: number;
     private landingVector: Vec2;
     /**
+     * Spin anchor (user 2026-11-09): the landing is stored in the body's
+     * LOCAL frame (angle − body angle at touch-down). A spinning asteroid
+     * carries the ship around with the very point it stands on — same
+     * footing while the rock rotates.
+     */
+    readonly localAngle: number;
+    /** Local outward surface orientation (null = radial, for planets). */
+    readonly orientationLocal: number | null;
+    readonly surfaceRadius: number;
+    /**
      * surfaceRadius: the distance from the body CENTER to the landing face.
      * For asteroids this is the POLYGON surface distance (user 2026-11-09:
      * resting on the rock face, never on a hover-circle of "air"), not the
      * ball-with-the-same-name radius.
      */
-    constructor(ship: Spacecraft, planet: Planet, angle: number, surfaceRadius: number = planet.radius) {
+    constructor(ship: Spacecraft, planet: Planet, angle: number, surfaceRadius: number = planet.radius, orientationWorld: number | null = null) {
         this.ship = ship;
         this.planet = planet;
         this.angle = angle;
+        this.localAngle = angle - planet.angle;
+        this.orientationLocal = orientationWorld === null ? null : orientationWorld - planet.angle;
+        this.surfaceRadius = surfaceRadius;
         this.landingVector = Vec2_makeWithAngleMag(Vec2.Zero(), angle, ship.radius + surfaceRadius);
     }
     solve(sim: Simulator, dt: number) {
         if (this.ship !== null) {
-            this.ship.pos.x = this.ship.pos.x * .5 + (this.planet.pos.x + this.landingVector.x) * .5;
-            this.ship.pos.y = this.ship.pos.y * .5 + (this.planet.pos.y + this.landingVector.y) * .5; // @@@ FIXME
-            this.ship.angle = this.angle;
+            // recompute in the body's CURRENT frame: spin carries us, and we
+            // face the surface normal (perpendicular), not the raw radius.
+            const worldAngle = this.planet.angle + this.localAngle;
+            const orientWorld = this.orientationLocal === null ? worldAngle : this.planet.angle + this.orientationLocal;
+            const lv = Vec2_makeWithAngleMag(Vec2.Zero(), worldAngle, this.ship.radius + this.surfaceRadius);
+            this.ship.pos.x = this.ship.pos.x * .5 + (this.planet.pos.x + lv.x) * .5;
+            this.ship.pos.y = this.ship.pos.y * .5 + (this.planet.pos.y + lv.y) * .5; // @@@ FIXME
+            this.ship.angle = orientWorld;
         }
     }
 }

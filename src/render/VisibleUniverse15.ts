@@ -72,16 +72,16 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             rot: next() * PI * 2,
             color,
             // visible but restrained (user 2026-11-09 "красивые, максимально")
-            alpha: 0.15 + 0.05 * (i % 2) + next() * 0.06,
+            alpha: 0.2 + 0.07 * (i % 2) + next() * 0.08,
             rr: Array.from({ length: 12 }, () => 0.65 + next() * 0.6),
         }));
         // GREAT nebula sheets (user 2026-11-09): 3 enormous clouds far from the
         // core — encountered occasionally while traveling, each a different
         // scale and hue. Never tiled, never noisy.
         const sheets = [
-            { x: -190000, y: 150000, r: 110000, color: "#3A5E7E", alpha: 0.10 },
-            { x: 220000, y: -120000, r: 80000, color: "#6E4E86", alpha: 0.09 },
-            { x: 60000, y: 240000, r: 95000, color: "#3E7E6E", alpha: 0.10 },
+            { x: -190000, y: 150000, r: 110000, color: "#3A5E7E", alpha: 0.14 },
+            { x: 220000, y: -120000, r: 80000, color: "#6E4E86", alpha: 0.13 },
+            { x: 60000, y: 240000, r: 95000, color: "#3E7E6E", alpha: 0.14 },
         ];
         for (const sh of sheets) {
             blobs.push({
@@ -93,8 +93,8 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         // SHOWCASE giants (user 2026-11-09): big, beautiful, inclined, rare —
         // few of them, so they read as accents, not wallpaper.
         const giants = [
-            { x: -260000, y: -90000, r: 85000, color: "#8A5E9A", alpha: 0.20 },
-            { x: 150000, y: 260000, r: 70000, color: "#4E7E9A", alpha: 0.18 },
+            { x: -260000, y: -90000, r: 85000, color: "#8A5E9A", alpha: 0.26 },
+            { x: 150000, y: 260000, r: 70000, color: "#4E7E9A", alpha: 0.24 },
         ];
         for (const g of giants) {
             blobs.push({
@@ -262,6 +262,10 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
     }
 
     drawUniverse(universe: VisibleUniverse) {
+        // Deepest background: parallax starfield art is drawn by the app
+        // layer (space()); world-fixed nebula blobs sit ABOVE it, under all
+        // bodies (user 2026-11-09): sparse, big, beautiful — never a grid.
+        this.drawNebula();
         // Black-hole landmark (P07-T04): the system is not a black hole, but
         // the signature encounter is rendered as a fixed distant landmark at
         // the far side of the playable space so players can fly up to it and
@@ -433,12 +437,12 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             ctx.shadowColor = blob.color;
             ctx.shadowBlur = SPRITE_PX * 0.046;
             ctx.fillStyle = blob.color;
-            ctx.globalAlpha = blob.alpha * 0.7;
+            ctx.globalAlpha = blob.alpha * 0.85;
             this.traceNebulaPath(ctx, blob, scale);
             ctx.fill();
             // core pass (crisp, translucent)
             ctx.shadowBlur = 0;
-            ctx.globalAlpha = blob.alpha * 0.55;
+            ctx.globalAlpha = blob.alpha * 0.8;
             this.traceNebulaPath(ctx, blob, scale);
             ctx.fill();
             if (blob.r > 60_000) {
@@ -516,7 +520,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             // cull blobs far outside the visible world rect
             if (blob.x + blob.r * 1.3 < left || blob.x - blob.r * 1.3 > right
                 || blob.y + blob.r * 1.3 < top || blob.y - blob.r * 1.3 > bottom) continue;
-            const size = blob.r * 2.6 * this.zoom;
+            const size = Math.min(2400, blob.r * 2.6 * this.zoom); // cap blit (GPU mobile safety)
             context.save();
             context.globalAlpha = 1; // alpha baked into the sprite
             context.drawImage(sprite, blob.x - size / 2, blob.y - size / 2, size, size);
@@ -1180,6 +1184,24 @@ export class VisibleUniverse15 extends VisibleUniverse {
         // tick the impact-FX cooldown
         if (this.impactFxCooldown > 0) this.impactFxCooldown = Math.max(0, this.impactFxCooldown - dt);
 
+        // Border strike (user 2026-11-09): pressing into the system
+        // ringfence used to be silent (no sparks) and render-expensive. Now
+        // the strike throws sparks like any impact (budgeted, same as others).
+        {
+            const d = this.ship.pos.mag();
+            const R = this.ringfence.radius;
+            if (d + this.ship.radius >= R - 20 && this.ship.pos.mag() > 0) {
+                const a = Vec2_angle(this.ship.pos, Vec2.Zero()); // outward normal (center → ship)
+                const n = Vec2_makeWithAngleMag(Vec2.Zero(), a, 1);
+                const radialVel = this.ship.velocity.x * n.x + this.ship.velocity.y * n.y;
+                if (radialVel > 40 && this.impactFxCooldown <= 0) {
+                    this.impactFxCooldown = 0.12;
+                    const nose = Vec2_makeWithAngleMag(Vec2.Zero(), this.ship.angle, this.ship.radius).addSelf(this.ship.pos);
+                    this.spawnImpactSparks(nose.x, nose.y, radialVel, a, this.ship.velocity.x, this.ship.velocity.y);
+                }
+            }
+        }
+
         // Stellar hazard (user 2026-11-08): corona heating, destruction and
         // respawn run before any collision logic each step.
         this.updateStarHazard(dt);
@@ -1256,15 +1278,22 @@ export class VisibleUniverse15 extends VisibleUniverse {
                     // landing, or impact? collision follows the polygon
                     // surface, so the ship rests ON the rock face (user
                     // 2026-11-08: circle collision left it hovering over air).
+                    // Landing accepts nose-first approach too (user 2026-11-09):
+                    // the pilot descends nose-down onto the rock; the solver
+                    // then stands him upright on the face normal.
                     const aDiff = abs(this.ship.angle - a);
+                    const inwardDiff = abs(abs(aDiff) - PI);
+                    const aligned = aDiff < PI / 4 || inwardDiff < PI / 4;
                     const vDiff = (this.ship.velocity.distance(asteroid.velocity));
-                    if (aDiff < PI / 4 && vDiff < 300) {
+                    if (aligned && vDiff < 300) {
+                        const normal = asteroid.surfaceNormal(a);
                         const landing = new Landing15(
                             this.ship,
                             asteroid as unknown as Planet,
                             a,
                             (this.namer as Namer15).describeActivity(this.rng, asteroid as unknown as Planet),
                             asteroid.surfaceDistance(a),
+                            normal,
                         );
                         this.ship.landing = landing;
                         Vec2_copy(this.ship.velocity, asteroid.velocity);

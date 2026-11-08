@@ -109,16 +109,34 @@ export class ZoomedDrawScope {
         const dash = this.containerDash;
         dash[0] = dash[1] = 8 / this.zoom;
         context.setLineDash(dash);
-        helper.drawCircle("#800000", 1 / this.zoom, 0, 0, container.radius);
-        //    val path = Path().apply {
-        //        fillType = PathFillType.EvenOdd
-        //        addOval(Rect(center = Vec2.Zero, radius = container.radius))
-        //        addOval(Rect(center = Vec2.Zero, radius = container.radius + 10_000))
-        //    }
-        //    drawPath(
-        //        path = path,
-        //
-        //    )
+        // SYSTEM BORDER (user 2026-11-09, FPS fix): the old code stroked one
+        // arc with radius UNIVERSE_RANGE (200 km) EVERY frame — on mobile
+        // GPUs that giant curve tessellation killed the frame rate whenever
+        // the border was on screen. Now only the VISIBLE angular window is
+        // drawn, as ≤64 short chords (radius ~200 km: at most ~100° shows).
+        const R = container.radius;
+        const hw = helper.x + helper.width / 2;
+        const hh = helper.y + helper.height / 2;
+        const cx = hw;
+        const cy = hh;
+        const screenR = Math.hypot(helper.width / 2, helper.height / 2);
+        if (Math.hypot(cx, cy) - screenR > R) { helper.clearLineDash(); return; } // off-screen entirely
+        const maxAng = Math.asin(Math.min(1, screenR / R));
+        let a0 = Math.atan2(cy, cx) - maxAng;
+        let a1 = Math.atan2(cy, cx) + maxAng;
+        if (a1 - a0 > PI * 2) { a0 = 0; a1 = PI * 2; }
+        const segs = 64;
+        context.strokeStyle = "#800000";
+        context.lineWidth = 1 / this.zoom;
+        context.beginPath();
+        for (let i = 0; i <= segs; i++) {
+            const a = a0 + (a1 - a0) * (i / segs);
+            const px = cx + Math.cos(a) * R;
+            const py = cy + Math.sin(a) * R;
+            if (i === 0) context.moveTo(px, py);
+            else context.lineTo(px, py);
+        }
+        context.stroke();
         helper.clearLineDash();
     }
 
