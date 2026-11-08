@@ -1325,24 +1325,63 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 ctx2.stroke();
             }
         }
-        // ship marker: arrow + velocity vector
-        const [sx2, sy2] = worldToScreen(universe.ship.pos.x, universe.ship.pos.y);
-        ctx2.translate(sx2, sy2);
-        ctx2.rotate(universe.ship.angle);
-        ctx2.fillStyle = "#B7B7FF";
-        ctx2.beginPath();
-        ctx2.moveTo(7, 0);
-        ctx2.lineTo(-5, 4.4);
-        ctx2.lineTo(-5, -4.4);
-        ctx2.closePath();
-        ctx2.fill();
-        ctx2.rotate(-universe.ship.angle);
-        ctx2.strokeStyle = "rgba(183,183,255,0.6)";
-        ctx2.lineWidth = 1.4;
-        ctx2.beginPath();
-        ctx2.moveTo(0, 0);
-        ctx2.lineTo(universe.ship.velocity.x / 6000 * 40, universe.ship.velocity.y / 6000 * 40);
-        ctx2.stroke();
+        // ship marker (user 2026-11-09): NOT an exact arrow — the ship is
+        // shown as an UNCERTAINTY QUAD (two parallel + two perpendicular
+        // sides, ~56px) containing the heading vector, its center wandering
+        // like any contact. Only near a NOTABLE body (star/planet) does the
+        // marker snap to the exact arrow — everything else is approximate.
+        {
+            const [sx2, sy2] = worldToScreen(universe.ship.pos.x, universe.ship.pos.y);
+            let nearest = universe.star.pos.distance(universe.ship.pos);
+            for (const p of universe.planets) {
+                const d = p.pos.distance(universe.ship.pos);
+                if (d < nearest) nearest = d;
+            }
+            if (nearest < 25_000) {
+                // close to a notable body: precise marker
+                ctx2.save();
+                ctx2.translate(sx2, sy2);
+                ctx2.rotate(universe.ship.angle);
+                ctx2.fillStyle = "#B7B7FF";
+                ctx2.beginPath();
+                ctx2.moveTo(9, 0);
+                ctx2.lineTo(-6, 5.5);
+                ctx2.lineTo(-6, -5.5);
+                ctx2.closePath();
+                ctx2.fill();
+                ctx2.rotate(-universe.ship.angle);
+                ctx2.strokeStyle = "rgba(183,183,255,0.6)";
+                ctx2.lineWidth = 1.4;
+                ctx2.beginPath();
+                ctx2.moveTo(0, 0);
+                ctx2.lineTo(universe.ship.velocity.x / 6000 * 40, universe.ship.velocity.y / 6000 * 40);
+                ctx2.stroke();
+                ctx2.restore();
+            } else {
+                // deep space: approximate area (wandered quad + heading tick)
+                const [jx, jy] = jitter2(424242);
+                const cx = sx2 + jx * 12;
+                const cy = sy2 + jy * 12;
+                const half = 28;
+                ctx2.save();
+                ctx2.translate(cx, cy);
+                ctx2.rotate(universe.ship.angle);
+                ctx2.strokeStyle = "rgba(183,183,255,0.85)";
+                ctx2.lineWidth = 1.6;
+                ctx2.setLineDash([5, 4]);
+                ctx2.strokeRect(-half, -half, half * 2, half * 2);
+                ctx2.setLineDash([]);
+                // heading: short wedge from the box center toward velocity
+                ctx2.fillStyle = "rgba(183,183,255,0.9)";
+                ctx2.beginPath();
+                ctx2.moveTo(half + 10, 0);
+                ctx2.lineTo(half - 2, 5);
+                ctx2.lineTo(half - 2, -5);
+                ctx2.closePath();
+                ctx2.fill();
+                ctx2.restore();
+            }
+        }
         ctx2.restore();
     }
     /** Radar pan/zoom is world-anchored: base scale from the system span. */
