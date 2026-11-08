@@ -1153,6 +1153,16 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             };
             return [h(0), h(1)];
         };
+        // Ship Geolocation sweep has its OWN bucket (no radarBucketBump):
+        // placing route nodes must not teleport your own marker.
+        const bucketShip = Math.floor(universe.now / 0.6);
+        const jitterShip = (seed: number): [number, number] => {
+            const h = (i: number) => {
+                const v = Math.sin((seed + 1) * 12.9898 + (bucketShip + i) * 78.233) * 43758.5453;
+                return (v - Math.floor(v)) * 2 - 1;
+            };
+            return [h(0), h(1)];
+        };
         const drawContact = (sx: number, sy: number, seed: number, outerR: number, stroke: string, soft: string) => {
             ctx2.fillStyle = soft;
             ctx2.beginPath();
@@ -1301,10 +1311,12 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         // label placement: only when zoomed in (min zoom grows with text size);
         // greedy: highest priority first, skip any that would overlap a
         // placed label (with a 3px gutter). Labels never touch each other.
+        // DEEP ZOOM (user 2026-11-09): zoomed into a scanned asteroid cloud,
+        // the BIGGEST visible rocks get short size labels ("~940 m").
+        const placedLabels: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
         {
             const minZoomFor = (text: string) => text.length > 2 ? 1.6 : 1.2;
             pendingLabels.sort((a, b) => a.prio - b.prio);
-            const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
             ctx2.font = "10px 'Roboto Mono', monospace";
             for (const L of pendingLabels) {
                 if (radarZoom < minZoomFor(L.text)) continue;
@@ -1313,16 +1325,42 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 const x0 = L.x - 2, y0 = L.y - 9, x1 = L.x + w, y1 = L.y + 3;
                 if (x0 < 4 || y0 < 4 || x1 > W - 4 || y1 > H - 4) continue;
                 let clash = false;
-                for (const R of placed) {
+                for (const R of placedLabels) {
                     if (x0 < R.x1 + 3 && x1 + 3 > R.x0 && y0 < R.y1 + 3 && y1 + 3 > R.y0) { clash = true; break; }
                 }
                 if (clash) continue;
-                placed.push({ x0, y0, x1, y1 });
+                placedLabels.push({ x0, y0, x1, y1 });
                 // soft plate under the text so it stays readable over the grid
                 ctx2.fillStyle = "rgba(10,10,16,0.55)";
                 ctx2.fillRect(x0, y0, x1 - x0, y1 - y0);
                 ctx2.fillStyle = L.color;
                 ctx2.fillText(L.text, L.x, L.y);
+            }
+        }
+        if (radarZoom >= 6) {
+            const cands: Array<{ x: number; y: number; text: string; r: number }> = [];
+            for (const a of universe.asteroids) {
+                if (!a.scanned) continue;
+                const [px, py] = worldToScreen(a.pos.x, a.pos.y);
+                if (px < 20 || py < 20 || px > W - 20 || py > H - 20) continue;
+                cands.push({ x: px, y: py, text: "Ø" + Math.round(a.radius * 2) + " m", r: a.radius });
+            }
+            cands.sort((a, b) => b.r - a.r); // biggest first
+            ctx2.font = "10px 'Roboto Mono', monospace";
+            for (const L of cands.slice(0, 24)) {
+                const w = L.text.length * 6.2 + 4;
+                const x0 = L.x - w / 2, y0 = L.y - 22, x1 = L.x + w / 2, y1 = L.y - 10;
+                if (x0 < 4 || y0 < 4 || x1 > W - 4 || y1 > H - 4) continue;
+                let clash = false;
+                for (const R of placedLabels) {
+                    if (x0 < R.x1 + 3 && x1 + 3 > R.x0 && y0 < R.y1 + 3 && y1 + 3 > R.y0) { clash = true; break; }
+                }
+                if (clash) continue;
+                placedLabels.push({ x0, y0, x1, y1 });
+                ctx2.fillStyle = "rgba(10,10,16,0.55)";
+                ctx2.fillRect(x0, y0, x1 - x0, y1 - y0);
+                ctx2.fillStyle = "rgba(196,180,150,0.9)";
+                ctx2.fillText(L.text, x0 + 2, y1 - 3);
             }
         }
         // scanned asteroids: ABSTRACT CLUSTERS (user 2026-11-09): the radar
@@ -1409,9 +1447,18 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         // (two parallel + two perpendicular sides, center wandering).
         {
             const [sx2, sy2] = worldToScreen(universe.ship.pos.x, universe.ship.pos.y);
-            let nearest = universe.star.pos.distance(universe.ship.pos);
+            // precision reference = only SCANNED notable bodies (user 2026-
+            // 11-09): an unread body fixates nothing — near a scanned star/
+            // planet/cargo the fix is exact, else dead reckoning.
+            let nearest = universe.star.scanned ? universe.star.pos.distance(universe.ship.pos) : Infinity;
             for (const p of universe.planets) {
+                if (!p.scanned && !p.explored) continue;
                 const d = p.pos.distance(universe.ship.pos);
+                if (d < nearest) nearest = d;
+            }
+            for (const c of universe.cargoShips) {
+                if (!c.scanned) continue;
+                const d = c.pos.distance(universe.ship.pos);
                 if (d < nearest) nearest = d;
             }
             // FIX QUALITY (user 2026-11-09): precision depends on three
@@ -1441,24 +1488,54 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 ctx2.fill();
                 ctx2.restore();
             } else {
-                // approximate: big centered arrow inside the wandered quad
-                const [jx, jy] = jitter2(424242);
+                // approximate: big centered arrow inside a pretty bracket
+                // frame (not a plain square): faint inner rect + 4 thick
+                // corner brackets + center crosshair ticks.
+                const [jx, jy] = jitterShip(424242);
                 const cx = sx2 + jx * 12;
                 const cy = sy2 + jy * 12;
                 const half = stepHalf[step];
+                const col = stepColors[step];
                 ctx2.save();
                 ctx2.translate(cx, cy);
-                ctx2.strokeStyle = stepColors[step];
-                ctx2.lineWidth = 1.6;
-                ctx2.setLineDash([5, 4]);
-                ctx2.strokeRect(-half, -half, half * 2, half * 2);
-                ctx2.setLineDash([]);
                 ctx2.rotate(universe.ship.angle);
-                ctx2.fillStyle = stepColors[step];
+                // faint full frame
+                ctx2.strokeStyle = col;
+                ctx2.globalAlpha = 0.25;
+                ctx2.lineWidth = 1;
+                ctx2.strokeRect(-half, -half, half * 2, half * 2);
+                ctx2.globalAlpha = 1;
+                // corner brackets
+                const arm = 10;
+                ctx2.lineWidth = 2.4;
+                ctx2.lineCap = "square";
+                for (const [bx, by] of [[-half, -half], [half, -half], [-half, half], [half, half]] as Array<[number, number]>) {
+                    const sx = Math.sign(bx);
+                    const sy = Math.sign(by);
+                    ctx2.beginPath();
+                    ctx2.moveTo(bx - sx * arm, by);
+                    ctx2.lineTo(bx, by);
+                    ctx2.lineTo(bx, by - sy * arm);
+                    ctx2.stroke();
+                }
+                // center crosshair ticks (tiny, pretty)
+                ctx2.lineWidth = 1.2;
                 ctx2.beginPath();
-                ctx2.moveTo(12, 0);
-                ctx2.lineTo(-10, 8);
-                ctx2.lineTo(-10, -8);
+                ctx2.moveTo(-4, 0);
+                ctx2.lineTo(-2.5, 0);
+                ctx2.moveTo(2.5, 0);
+                ctx2.lineTo(4, 0);
+                ctx2.moveTo(0, -4);
+                ctx2.lineTo(0, -2.5);
+                ctx2.moveTo(0, 2.5);
+                ctx2.lineTo(0, 4);
+                ctx2.stroke();
+                // heading arrow centered, pointing along +x
+                ctx2.fillStyle = col;
+                ctx2.beginPath();
+                ctx2.moveTo(13, 0);
+                ctx2.lineTo(-10, 7);
+                ctx2.lineTo(-10, -7);
                 ctx2.closePath();
                 ctx2.fill();
                 ctx2.restore();

@@ -359,7 +359,7 @@ export class ZoomedDrawScope {
             const total = track.size();
             if (total < 2) return;
             context.strokeStyle = "rgba(168, 168, 180, 0.3)";
-            context.lineWidth = 2.5 / this.zoom;
+            context.lineWidth = 3.1 / this.zoom;
             context.setLineDash([4 / this.zoom, 9 / this.zoom]);
             context.beginPath();
             let first = true;
