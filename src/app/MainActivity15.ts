@@ -1863,6 +1863,14 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     const PASS_NODE_DIST = 1400; // pass-through radius for intermediate nodes
     function pilotUpdate(dt: number) {
         if (routePilot.active === false) return;
+        // ONE control line (user 2026-11-09): safety and auto-landing also
+        // act through this single arbiter — safe > autoLand > route pilot,
+        // so route and safety never fight over the nose/thrust.
+        if (safeHold || autoLand) {
+            ship.thrust.x = 0;
+            ship.thrust.y = 0;
+            return;
+        }
         if (routeNodeList.length === 0) { cancelRoute(); return; }
         // player override during flight (not during the threat stop — there
         // the player steering back on course is the designed recovery)
@@ -1924,9 +1932,58 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         universe.routeNodeIdx = routeIdx;
         universe.routePhase = routePilot.phase;
         if (routePilot.phase === "arrived") {
-            arrivedClock += dt;
-            if (arrivedClock > 2) { cancelRoute(); }
+            // FINAL by object type (user 2026-11-09): the autopilot ALWAYS
+            // finishes its work at the last node — the ending depends on the
+            // object:  PLANET → slide into its ORBIT & hand over;  ASTEROID
+            // → FOLLOW it (match its motion);  FREE POINT → plain full stop.
+            const n = routeNodeList[routeIdx];
+            const body = findArrivalBody(n?.bodyId ?? null);
+            if (body && body.kind === "planet") {
+                // orbit hold: match the planet's velocity, nose tangentially
+                const rvx = ship.velocity.x - body.vx;
+                const rvy = ship.velocity.y - body.vy;
+                const rm = Math.hypot(rvx, rvy);
+                if (rm > 120) {
+                    ship.angle = Math.atan2(-rvy, -rvx);
+                    ship.thrust.x = Math.cos(ship.angle);
+                    ship.thrust.y = Math.sin(ship.angle);
+                } else {
+                    ship.thrust.x = 0;
+                    ship.thrust.y = 0;
+                    arrivedClock += dt;
+                    if (arrivedClock > 2) { safeShowToast("ORBIT HOLD"); cancelRoute(); }
+                }
+            } else if (body && (body.kind === "asteroid" || body.kind === "cargo")) {
+                // escort: stay on the rock/cargo, matching its motion
+                const rvx = ship.velocity.x - body.vx;
+                const rvy = ship.velocity.y - body.vy;
+                const rm = Math.hypot(rvx, rvy);
+                if (rm > 90) {
+                    ship.angle = Math.atan2(-rvy, -rvx);
+                    ship.thrust.x = Math.cos(ship.angle);
+                    ship.thrust.y = Math.sin(ship.angle);
+                } else {
+                    ship.thrust.x = 0;
+                    ship.thrust.y = 0;
+                    // still escort while the route is up
+                }
+            } else {
+                arrivedClock += dt;
+                if (arrivedClock > 2) { cancelRoute(); }
+            }
         } else arrivedClock = 0;
+    }
+    /** Body lookup for arrival finishers (planet/cargo/asteroid/star). */
+    function findArrivalBody(id: number | null): { x: number; y: number; vx: number; vy: number; kind: string } | null {
+        if (id === null) return null;
+        const p = universe.planets.find(pl => pl.id === id);
+        if (p) return { x: p.pos.x, y: p.pos.y, vx: p.velocity.x, vy: p.velocity.y, kind: "planet" };
+        const c = universe.cargoShips.find(cf => cf.id === id);
+        if (c) return { x: c.pos.x, y: c.pos.y, vx: c.velocity.x, vy: c.velocity.y, kind: "cargo" };
+        const r = universe.asteroids.find(cf => cf.id === id);
+        if (r) return { x: r.pos.x, y: r.pos.y, vx: r.velocity.x, vy: r.velocity.y, kind: "asteroid" };
+        if (universe.star.id === id) return { x: universe.star.pos.x, y: universe.star.pos.y, vx: 0, vy: 0, kind: "star" };
+        return null;
     }
 
     /**
@@ -2234,7 +2291,6 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const u = universe as unknown as { safetyEnabled?: boolean };
         if (u.safetyEnabled === false) return;
         const t = universe.impactThreat;
-        console.debug("[safe] check t=" + (t ? t.tti.toFixed(2) : "null") + " spd=" + Math.round(ship.velocity.mag()));
         if (t === null) return;
         const spd0 = ship.velocity.mag();
         if (spd0 < 300) return; // gentle landing approach — let her land
@@ -2250,11 +2306,9 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const impactDist = t.tti * spd0;
         const dwell = 900; // nose swing eats ~0.5-1s of margin
         const brakingSaves = brakeDist + dwell <= impactDist * 0.85;
-        console.debug("[safe] gate tti=" + t.tti.toFixed(2) + " brakeDist=" + Math.round(brakeDist + dwell) + " impD=" + Math.round(impactDist * 0.85) + " saves=" + brakingSaves);
         if (t.tti > 5.0 && brakingSaves) return;
         const mode: "brake" | "evade" = brakingSaves ? "brake" : "evade";
         safeMode = mode;
-        console.debug("[safe] ENGAGE " + mode);
         setSafeHold(true);
         routePilot.active = false; // safety outranks the route pilot
         setBoost(false);
@@ -2265,13 +2319,11 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const spd = ship.velocity.mag();
         // release: threat physics-gone (latch cleared) or down to safe speed
         if (t === null || spd <= 500) {
-            console.debug("[safe] RELEASE t=" + (t ? t.tti : "null") + " spd=" + Math.round(spd));
             setSafeHold(false);
             ship.thrust.x = 0;
             ship.thrust.y = 0;
             return;
         }
-        console.debug("[safe] hold t=" + t.tti.toFixed(2) + " spd=" + Math.round(spd) + " want=" + Math.round(universe.ship.angle * 180 / Math.PI));
         // The engine pushes ONLY along the nose (ship.angle): so the takeover
         // reORIENTS the ship to the dodge direction and burns forward.
         // brake → face retrograde and burn; evade → face the perpendicular

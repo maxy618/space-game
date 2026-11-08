@@ -111,7 +111,7 @@
     #safeButton {
       position: fixed;
       right: calc(14px + var(--safe-right));
-      bottom: calc(250px + var(--safe-bottom)); /* right above the landing button */
+      top: calc(150px + var(--safe-top)); /* chained right under the radar */
       width: 56px;
       height: 56px;
       padding: 0;
@@ -210,7 +210,7 @@
     #landButton {
       position: fixed;
       right: calc(14px + var(--safe-right));
-      bottom: calc(184px + var(--safe-bottom));
+      top: calc(216px + var(--safe-top)); /* chained under the shield */
       width: 56px;
       height: 56px;
       padding: 0;
@@ -353,7 +353,7 @@
       transition: background 0.15s, border-color 0.15s, opacity 0.2s, transform 0.1s;
       -webkit-tap-highlight-color: transparent;
     }
-    #scanButton { bottom: calc(118px + var(--safe-bottom)); }
+    #scanButton { top: calc(282px + var(--safe-top)); }
     #radarButton {
       position: fixed;
       top: calc(84px + var(--safe-top)); /* right UNDER the pause button */
