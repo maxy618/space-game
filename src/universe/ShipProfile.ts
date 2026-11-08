@@ -33,6 +33,8 @@ export interface ShipProfile {
     boostGlowColor: string;
     /** Particle/debris count multiplier for the destruction effect. */
     destructionScale: number;
+    /** Stellar-heating hull-glow intensity multiplier (future ships vary it). */
+    heatGlowScale: number;
 }
 
 /** The placeholder MV-15: exactly the current gameplay feel. */
@@ -46,4 +48,5 @@ export const DEFAULT_SHIP_PROFILE: ShipProfile = {
     coolRate: 1,
     boostGlowColor: "90, 190, 255",
     destructionScale: 1,
+    heatGlowScale: 1,
 };

@@ -93,9 +93,13 @@ describe("destruction & respawn integration (VisibleUniverse15)", () => {
         let millis = 1;
         u.step(millis);
         let respawned = false;
-        for (let i = 0; i < 300; i++) {
+        let sparksSeen = 0;
+        // death delay 3.8s + respawn: give the full sequence room
+        for (let i = 0; i < 600; i++) {
             millis += 16;
             u.step(millis);
+            // sparks live only as long as the explosion plays — count them while they exist
+            u.entities.forEach(e => { if ((e as { lifetime?: number }).lifetime !== undefined) sparksSeen++; });
             if (u.ship.pos.distance(u.star.pos) > u.star.radius * STAR_CORONA_FACTOR) {
                 respawned = true;
                 break;
@@ -115,10 +119,8 @@ describe("destruction & respawn integration (VisibleUniverse15)", () => {
         // universe/explored state preserved
         expect(u.planets.filter(p => p.explored).length).toBe(exploredBefore);
         expect(u.now).toBeGreaterThan(simNowBefore);
-        // destruction effect exists (flash/particles/debris sparks)
-        let sparks = 0;
-        u.entities.forEach(e => { if ((e as { lifetime?: number }).lifetime !== undefined) sparks++; });
-        expect(sparks).toBeGreaterThan(10);
+        // destruction effect existed while the explosion played
+        expect(sparksSeen).toBeGreaterThan(10);
     });
 
     it("heat resistance profile keeps a ship alive longer (architecture hook)", () => {

@@ -618,6 +618,31 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
             context.lineWidth = 2 / this.zoom;
             context.stroke(this.spaceshipLegs);
         }
+        // Stellar-heating glow (user 2026-11-09): the closer it gets, the more
+        // the hull glows yellow -> red -> white-hot. Intensity is profile-driven
+        // (profile.heatGlowScale) so future ships can vary it without code.
+        {
+            const heat = (ship as unknown as { heat?: number }).heat ?? 0;
+            const scale = (ship as unknown as { profile?: { heatGlowScale?: number } }).profile?.heatGlowScale ?? 1;
+            const g = heat * scale;
+            if (g > 0.04) {
+                const t = performance.now() / 1000;
+                const flick = 0.9 + 0.1 * Math.sin(t * 9.0);
+                const col = g < 0.33 ? "255,209,96" : g < 0.66 ? "255,138,60" : g < 0.85 ? "255,90,60" : "255,242,216";
+                const R = ship.radius * (1.6 + g * 2.2);
+                for (let i = 2; i >= 0; i--) {
+                    context.fillStyle = "rgba(" + col + "," + (0.10 * g * flick * (1 - i * 0.22)).toFixed(3) + ")";
+                    context.beginPath();
+                    context.arc(0, 0, R * (1 + i * 0.45), 0, PI * 2);
+                    context.fill();
+                }
+                // hull rim light tint
+                context.fillStyle = "rgba(" + col + "," + (0.30 * g * flick).toFixed(3) + ")";
+                context.beginPath();
+                context.arc(0, 0, ship.radius * 1.1, 0, PI * 2);
+                context.fill();
+            }
+        }
         // draw the ship
         context.fillStyle = Colors.Eigengrau;
         context.fill(this.spaceshipPath); // fauxpaque
@@ -869,7 +894,7 @@ export class VisibleUniverse15 extends VisibleUniverse {
      * layer from CollisionPredict (~10 Hz; null = no threat). Read by the
      * draw scope to render the impact ring.
      */
-    impactThreat: { x: number; y: number; radius: number; tti: number; level: "warning" | "critical" } | null = null;
+    impactThreat: { x: number; y: number; radius: number; tti: number; level: "warning" | "critical"; kind: "star" | "planet" | "asteroid"; vx: number; vy: number; body: any } | null = null;
 
     /** Route autopilot (user 2026-11-09): target body + phase, for the line. */
     safetyEnabled = true;
@@ -1061,7 +1086,7 @@ export class VisibleUniverse15 extends VisibleUniverse {
     deathClock = 0;
     deathPos = { x: 0, y: 0 };
     updateStarHazard(dt: number) {
-        if (this.shipDead) { this.deathClock += dt; if (this.deathClock >= 1.0) this.respawnShip(); return; }
+        if (this.shipDead) { this.deathClock += dt; const sp = this.ship; sp.pos.x = this.deathPos.x; sp.pos.y = this.deathPos.y; sp.opos.x = this.deathPos.x; sp.opos.y = this.deathPos.y; sp.velocity.x = 0; sp.velocity.y = 0; sp.thrust.x = 0; sp.thrust.y = 0; if (this.deathClock >= 3.8) this.respawnShip(); return; }
         const ship = this.ship;
         const dist = ship.pos.distance(this.star.pos);
         const res = starHeatStep(ship.heat, dist, this.star.radius, dt, ship.profile.heatTolerance, ship.profile.coolRate, this.starCountdown);

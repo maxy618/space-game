@@ -67,11 +67,12 @@
     #safeButton {
       position: fixed;
       right: calc(14px + var(--safe-right));
-      bottom: calc(250px + var(--safe-bottom)); /* right above scan+land, above the boost */
+      bottom: calc(184px + var(--safe-bottom)); /* right above the scanner, even gap */
       width: 56px;
       height: 56px;
       padding: 0;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       background: rgba(22, 22, 29, 0.72);
@@ -295,6 +296,7 @@
       position: fixed;
       inset: 0;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       background: rgba(4, 5, 8, 0.86);
@@ -315,8 +317,8 @@
       pointer-events: auto;
     }
     #radarCanvas {
-      width: min(78vmin, 460px);
-      height: min(78vmin, 460px);
+      width: min(92vw, 460px);
+      height: min(92vw, 460px);
       margin-top: 64px; /* square sits lower: the info card band above it */
       background: rgba(22, 22, 29, 0.9);
       border: 1px solid var(--color-Eigengrau3);
@@ -330,8 +332,8 @@
       position: absolute;
       /* canvas top-right corner, shifted with the lowered square:
          close sits just above its top edge. */
-      top: calc(50% - min(46vmin, 280px) - 22px);
-      right: calc(50% - min(46vmin, 280px) + 4px);
+      top: calc(50% - min(46vw, 230px) - 22px);
+      right: calc(50% - min(46vw, 230px) + 4px);
       width: 42px;
       height: 42px;
       padding: 0;
@@ -360,14 +362,17 @@
     /* Route bar: FOUR IDENTICAL SQUARE BUTTONS (user 2026-11-09 criterion):
        same size/border/typography; SVG icons only вЂ” no emoji/pictographs. */
     #routeBar {
-      position: absolute;
-      bottom: 26px;
       display: flex;
-      gap: 12px;
+      gap: 8px;
+      width: min(92vw, 460px);
+      margin-top: 10px;
     }
     .radar-square-btn {
-      width: 56px;
-      height: 56px;
+      flex: 1 1 0;
+      min-width: 0;
+      aspect-ratio: 1;
+      width: auto;
+      height: auto;
       padding: 0;
       display: flex;
       align-items: center;
@@ -606,8 +611,8 @@
     #objectInfo {
       position: fixed;
       left: 50%;
-      bottom: calc(50% + min(39vmin, 230px) - 24px);
-      width: min(78vmin, 460px); /* exactly the map square's width */
+      bottom: calc(50% + min(46vw, 230px) - 24px);
+      width: min(92vw, 460px); /* exactly the map square's width */
       max-height: 150px;
       overflow: hidden;
       box-sizing: border-box;
@@ -918,9 +923,8 @@
        and banners never overlap the minimap (user mandate). */
     #minimapWrap {
       position: fixed;
-      left: 50%;
+      right: calc(10px + var(--safe-right));
       top: calc(10px + var(--safe-top));
-      transform: translateX(-50%);
       width: 168px;
       height: 168px;
       background: rgba(10, 10, 16, 0.82);
@@ -972,6 +976,21 @@
     body.ui-blocked #safeButton,
     body.ui-blocked #autoCancel,
     body.ui-blocked #minimapWrap { display: none; }
+
+    /* Death shade (user 2026-11-09): after the ship dies the screen darkens
+       gradually (3s), blurs, then the respawn fades in smoothly. Driven per
+       frame from universe death state (MainActivity15). */
+    #deathShade {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 43;
+      opacity: 0;
+      background: radial-gradient(ellipse at center, rgba(4,4,8,0.55) 0%, rgba(1,1,4,0.92) 100%);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      transition: opacity 0.25s ease;
+    }
   </style>
 </head>
 <body>
@@ -1113,11 +1132,10 @@
           <path d="M7.6 12.4 L10.8 15.6 L16.4 8.6" fill="none" stroke="#9ED8A4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </button>
-      <button id="routePause" class="radar-square-btn" type="button" aria-label="Pause">
+      <button id="routeSettings" class="radar-square-btn" type="button" aria-label="Settings">
         <svg width="30" height="30" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" fill="none" stroke="#7A7A9E" stroke-width="1.4"/>
-          <rect x="9" y="8" width="2.4" height="8" rx="1.2" fill="#B7B7FF"/>
-          <rect x="12.6" y="8" width="2.4" height="8" rx="1.2" fill="#B7B7FF"/>
+          <circle cx="12" cy="12" r="3.2" fill="none" stroke="#B7B7FF" stroke-width="1.6"/>
+          <path d="M12 2.2 V5.4 M12 18.6 V21.8 M2.2 12 H5.4 M18.6 12 H21.8 M5.1 5.1 L7.4 7.4 M16.6 16.6 L18.9 18.9 M18.9 5.1 L16.6 7.4 M7.4 16.6 L5.1 18.9" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
         </svg>
       </button>
       <button id="routeClose" class="radar-square-btn" type="button" aria-label="Close radar">
@@ -1131,11 +1149,11 @@
   </div>
 
   <!-- Scan feedback banners (top-center console strips). -->
-  <div id="scanHint">SIGNAL TOO WEAK вЂ” SLOW BELOW <span id="scanHintNum">500</span> m/s</div>
+  <div id="scanHint">TOO FAST — SLOW TO <span id="scanHintNum">500</span> m/s вЂ” SLOW BELOW <span id="scanHintNum">500</span> m/s</div>
   <div id="scanResult"></div>
   <div id="scanResults" aria-live="polite"></div>
-  <div id="voidBanner"><span>INTO THE VOID</span><span>TURN BACK</span></div>
-  <div id="voidBannerNear"><span>EDGE OF SYSTEM</span><span>TURN BACK</span></div>
+  <div id="voidBanner"><span>VOID</span><span>TURN</span></div>
+  <div id="voidBannerNear"><span>EDGE</span><span>TURN</span></div>
   <div id="voidEdge" aria-hidden="true"></div>
   <div id="safeToast">CONTROL RETURNED</div>
   <div id="safeEdge" aria-hidden="true"></div>
@@ -1163,6 +1181,7 @@
     <dl id="objectInfoRows"></dl>
   </div>
 
+  <div id="deathShade" aria-hidden="true"></div>
   <div id="threatArrow" aria-hidden="true"><svg width="34" height="34" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 3 L20 19 L12 15.5 L4 19 Z" fill="currentColor" stroke="rgba(0,0,0,0.35)" stroke-width="1"/></svg></div>
   <div id="pauseMenu" hidden>
     <div class="pause-menu-title">PAUSED</div>

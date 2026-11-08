@@ -590,7 +590,7 @@ if (safeBtn) {
 }
 // Close ONLY via the bottom-row ✕ (no backdrop close, no top cross).
 routeCloseBtn.addEventListener("click", () => setRadarOpen(false));
-const routePauseBtn = document.getElementById("routePause") as HTMLButtonElement | null;
+const routePauseBtn = document.getElementById("routeSettings") as HTMLButtonElement | null;
 routePauseBtn?.addEventListener("click", () => { setPlayerPaused(true); routePauseBtn.blur(); });
 // keyboard: Q scans, R toggles the radar
 inputLayer.setEdgeHandler("scan", () => scanButton.click());

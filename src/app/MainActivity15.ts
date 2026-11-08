@@ -918,7 +918,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const sx = (universe.ship.pos.x - helper.x) * zoom;
         const sy = (universe.ship.pos.y - helper.y) * zoom;
         const stickA = Math.atan2(actions.stickY, actions.stickX);
-        shipAnchorPx = { x: sx, y: sy };
+        shipAnchorPx = { x: sx / dpr, y: sy / dpr };
         const shipA = universe.ship.angle;
         // two concentric invisible rings around the ship: the near bar (ship
         // heading, button color) and the far bar (stick, white). Directed
@@ -2139,6 +2139,11 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
      * the impact floor).
      */
     let impactLatched: { pos: Vec2, velocity: Vec2, radius: number } | null = null;
+    function kindOf(b: any): "star" | "planet" | "asteroid" {
+        if (b === universe.star) return "star";
+        if (b instanceof Asteroid) return "asteroid";
+        return "planet";
+    }
     function updateImpactWarning(millis: number) {
         if (lastFrameMillisImpact >= 0) impactEvalIn -= (millis - lastFrameMillisImpact) / 1000;
         lastFrameMillisImpact = millis;
@@ -2180,6 +2185,8 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 x: bestBody.pos.x, y: bestBody.pos.y,
                 radius: bestBody.radius,
                 tti: bestTti, level: bestLevel,
+                kind: kindOf(bestBody) as "star" | "planet" | "asteroid",
+                vx: bestBody.velocity.x, vy: bestBody.velocity.y, body: bestBody,
             };
             if (impactHud && impactHudTime) {
                 impactHudTime.textContent = "T−" + bestTti.toFixed(1) + "s";
@@ -2204,6 +2211,8 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                     x: b.pos.x, y: b.pos.y,
                     radius: b.radius,
                     tti, level,
+                    kind: kindOf(b) as "star" | "planet" | "asteroid",
+                    vx: b.velocity.x, vy: b.velocity.y, body: b,
                 };
                 if (impactHud && impactHudTime) {
                     impactHudTime.textContent = "T−" + tti.toFixed(1) + "s";
@@ -2247,12 +2256,12 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         if (cd !== null) {
             if (!heatBanner.classList.contains("active")) heatBanner.classList.add("active");
             if (!heatBanner.classList.contains("critical")) heatBanner.classList.add("critical");
-            heatBannerText.textContent = "TEMPERATURE CRITICAL — LEAVE THE ZONE";
+            heatBannerText.textContent = "TOO HOT";
             if (heatBannerTime) heatBannerTime.textContent = "T−" + Math.max(0, cd).toFixed(1) + "s";
         } else if (prox >= 0.25) {
             if (!heatBanner.classList.contains("active")) heatBanner.classList.add("active");
             heatBanner.classList.remove("critical");
-            heatBannerText.textContent = "TEMPERATURE RISING NEAR CRITICAL";
+            heatBannerText.textContent = "HEAT";
             if (heatBannerTime) heatBannerTime.textContent = "";
         } else {
             heatBanner.classList.remove("active", "critical");
@@ -2266,7 +2275,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
     // control back once the threat clears. Tapping the shield mid-takeover
     // aborts the takeover instantly (control back, red gone).
     let safeHold = false;
-    let safeMode: "brake" | "evade" | "brake-evade" = "brake";
+    let safeMode: "brake" | "evade" | "brake-evade" | "escort" | "orbit" = "brake";
     const safeButton = document.getElementById("safeButton") as HTMLButtonElement | null;
     const safeEdge = document.getElementById("safeEdge");
     const safeToast = document.getElementById("safeToast");
@@ -2284,46 +2293,152 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         safeEdge?.classList.toggle("active", on);
         if (!on) {
             ship.thrustMultiplier = 1; // restore the normal engine
+            setBoost(false); // safety always drops its own burner at hand-back
+            safeBody = null;
             playerTookControl = false;
-            if (universe.impactThreat === null && ship.velocity.mag() <= 520) safeShowToast("CONTROL RETURNED");
+            if (universe.impactThreat === null && ship.velocity.mag() <= 520) safeShowToast("SAFE");
         }
+    }
+    // Tracked body (live reference) for the safety re-checks + escort/orbit holds.
+    let safeBody: any = null;
+    let safeBodyKind: "star" | "planet" | "asteroid" = "planet";
+    function bodyTTI(body: any): number | null {
+        const rx = body.pos.x - ship.pos.x;
+        const ry = body.pos.y - ship.pos.y;
+        const ux = body.velocity.x - ship.velocity.x;
+        const uy = body.velocity.y - ship.velocity.y;
+        return timeToImpact(rx, ry, ux, uy, body.radius + ship.radius).tti;
     }
     function safeEngageCheck() {
         if (safeHold) return;
         const u = universe as unknown as { safetyEnabled?: boolean };
         if (u.safetyEnabled === false) return;
-        const t = universe.impactThreat;
-        if (t === null) return;
         const spd0 = ship.velocity.mag();
         if (spd0 < 300) return;
-        // best-maneuver costing (user 2026-11-09): brake vs evade vs combined.
-        const closing = spd0;
-        const miss = t.radius + ship.radius;
-        const mode = decideSafeManeuver(closing, t.tti, ship.profile.engineAccel, 500, miss, 0);
-        // engage ONLY at the last survivable moment: needed time + swing dwell
-        const a = Math.max(1, ship.profile.engineAccel);
+        // Physics-only scan (no nose gates): catches gravity-driven falls the
+        // gated HUD warning never fires for (nose pointing elsewhere).
+        const t = universe.impactThreat;
+        let eff: { x: number; y: number; radius: number; tti: number; kind: "star" | "planet" | "asteroid"; body: any } | null = null;
+        if (t !== null) {
+            eff = { x: t.x, y: t.y, radius: t.radius, tti: t.tti, kind: t.kind, body: t.body };
+        } else {
+            let best: any = null;
+            let bestTti = Infinity;
+            for (const bb of impactBodies()) {
+                const rx = bb.pos.x - ship.pos.x;
+                const ry = bb.pos.y - ship.pos.y;
+                if (Math.hypot(rx, ry) > bb.radius + 12_000 * 10) continue;
+                const res = timeToImpact(rx, ry, bb.velocity.x - ship.velocity.x, bb.velocity.y - ship.velocity.y, bb.radius + ship.radius);
+                if (res.tti === null || res.tti > 10 || res.closing < 150) continue;
+                if (res.tti < bestTti) { bestTti = res.tti; best = bb; }
+            }
+            if (best === null) return;
+            eff = { x: best.pos.x, y: best.pos.y, radius: best.radius, tti: bestTti, kind: kindOf(best), body: best };
+        }
+        // best-maneuver costing; safety may use the burner, so evade timing uses boosted accel.
+        const thrustA = ship.profile.engineAccel;
+        const boostA = thrustA * ship.profile.boostAccelMultiplier;
+        const closing = Math.max(0, spd0);
+        const miss = eff.radius + ship.radius;
+        let mode = decideSafeManeuver(closing, eff.tti, boostA, 500, miss, 0);
+        // star: never pure-brake (it parks you in the well to burn); always carry out.
+        if (eff.kind === "star" && mode === "brake") mode = "brake-evade";
+        // engage ONLY at the last survivable moment: needed time + swing dwell (+gravity margin).
         const dv = Math.max(0, spd0 - 500);
-        const brakeTime = dv / a;
-        const engageTime = mode === "evade" ? Math.sqrt((2*miss)/a) : brakeTime;
+        const brakeTime = dv / (2 * thrustA); // takeover brake burn is doubled
+        const engageTime = mode === "brake" ? brakeTime : Math.max(brakeTime, Math.sqrt((2*miss)/boostA));
         const swing = 0.6;
-        if (t.tti > engageTime + swing + 0.8) return; // player still has time
+        const gMargin = eff.kind === "star" ? 1.0 : 0.3; // gravity accelerates the fall
+        if (eff.tti > engageTime + swing + 0.8 + gMargin) return;
         safeMode = mode;
+        safeBody = eff.body;
+        safeBodyKind = eff.kind;
         setSafeHold(true);
-        routePilot.active = false;
-        setBoost(false);
+        // NOTE (user 2026-11-09): safety NEVER kills the route autopilot —
+        // it only outranks it during the hold; the route resumes after release.
+        if (safeMode !== "brake") setBoost(true); // safety may burn to dodge
     }
     function safeHoldUpdate(dt: number) {
         if (!safeHold) return;
-        const t = universe.impactThreat;
         const spd = ship.velocity.mag();
-        // release ONLY when BOTH slow AND threat cleared (user mandate)
-        if (spd <= 500 && t === null) {
-            setSafeHold(false);
-            ship.thrust.x = 0; ship.thrust.y = 0;
+        // abort escort/orbit holds on any player flight input
+        const actions = inputLayer.resolve();
+        // star escape: while still inside the corona, keep carrying outward (no parking in the well).
+        if (safeBodyKind === "star" && safeBody !== null) {
+            const toStarDist = Math.hypot(ship.pos.x - universe.star.pos.x, ship.pos.y - universe.star.pos.y);
+            if (toStarDist < universe.star.radius * 1.75 && spd < 3000) {
+                const away = Math.atan2(ship.pos.y - universe.star.pos.y, ship.pos.x - universe.star.pos.x);
+                const tang = away + Math.PI / 2;
+                const side = ship.velocity.x * Math.cos(tang) + ship.velocity.y * Math.sin(tang) >= 0 ? 1 : -1;
+                const wx = Math.cos(away) * 0.8 + Math.cos(tang) * 0.6 * side;
+                const wy = Math.sin(away) * 0.8 + Math.sin(tang) * 0.6 * side;
+                const want = Math.atan2(wy, wx);
+                let err = want - ship.angle;
+                while (err > PI) err -= PI * 2;
+                while (err < -PI) err += PI * 2;
+                const maxTurn = 3.2 * dt;
+                ship.angle += clamp(err, -maxTurn, maxTurn);
+                ship.thrustMultiplier = 2;
+                const outComp = (ship.velocity.x * Math.cos(away) + ship.velocity.y * Math.sin(away)) > -350;
+                if (Math.abs(err) < 0.5 && outComp) { ship.thrust.x = Math.cos(ship.angle); ship.thrust.y = Math.sin(ship.angle); }
+                else { ship.thrust.x = 0; ship.thrust.y = 0; }
+                playerTookControl = false;
+                return;
+            }
+        }
+        if (actions.stickActive || actions.forward > 0 || actions.steer !== 0) {
+            if (safeMode === "escort" || safeMode === "orbit") {
+                setSafeHold(false);
+                ship.thrust.x = 0; ship.thrust.y = 0;
+                return;
+            }
+        }
+        const bodyTti = safeBody !== null ? bodyTTI(safeBody) : null;
+        // RELEASE: slow AND threat physics-cleared (user mandate)
+        if (spd <= 500 && bodyTti === null) {
+            // post-save holds instead of a plain hand-back
+            if (safeBodyKind === "asteroid" && safeBody !== null) {
+                const dBody = Math.hypot(safeBody.pos.x - ship.pos.x, safeBody.pos.y - ship.pos.y);
+                if (dBody < 40_000) { safeMode = "escort"; safeShowToast("ESCORT"); }
+                else { setSafeHold(false); ship.thrust.x = 0; ship.thrust.y = 0; return; }
+            } else if (safeBodyKind === "planet" && safeBody !== null) {
+                safeMode = "orbit"; safeShowToast("ORBIT HOLD");
+            } else {
+                setSafeHold(false);
+                ship.thrust.x = 0; ship.thrust.y = 0;
+                return;
+            }
+        }
+        // escort an asteroid / orbit-hold a planet until the player steps in
+        if (safeMode === "escort" || safeMode === "orbit") {
+            if (safeBody === null) { setSafeHold(false); return; }
+            const dBody = Math.hypot(safeBody.pos.x - ship.pos.x, safeBody.pos.y - ship.pos.y);
+            if (dBody > 40_000 || safeBody === null) { setSafeHold(false); ship.thrust.x = 0; ship.thrust.y = 0; return; }
+            let wantX = safeBody.pos.x, wantY = safeBody.pos.y;
+            if (safeMode === "escort") {
+                const bvx = safeBody.velocity.x, bvy = safeBody.velocity.y;
+                const bl = Math.hypot(bvx, bvy) || 1;
+                wantX -= (bvx / bl) * 900; wantY -= (bvy / bl) * 900;
+            }
+            const errX = (safeBody.velocity.x - ship.velocity.x) + (wantX - ship.pos.x) * 0.02;
+            const errY = (safeBody.velocity.y - ship.velocity.y) + (wantY - ship.pos.y) * 0.02;
+            const errMag = Math.hypot(errX, errY);
+            if (errMag > 40) {
+                const want = Math.atan2(errY, errX);
+                let err = want - ship.angle;
+                while (err > PI) err -= PI * 2;
+                while (err < -PI) err += PI * 2;
+                const maxTurn = 3.2 * dt;
+                ship.angle += clamp(err, -maxTurn, maxTurn);
+                ship.thrustMultiplier = 1;
+                if (Math.abs(err) < 0.5) { ship.thrust.x = Math.cos(ship.angle); ship.thrust.y = Math.sin(ship.angle); }
+                else { ship.thrust.x = 0; ship.thrust.y = 0; }
+            } else { ship.thrust.x = 0; ship.thrust.y = 0; }
+            playerTookControl = false;
             return;
         }
         // threat cleared but still fast: keep braking to 500
-        if (t === null && spd > 500) {
+        if (bodyTti === null && spd > 500) {
             const want = Math.atan2(ship.velocity.y, ship.velocity.x) + Math.PI;
             let err = want - ship.angle;
             while (err > PI) err -= PI * 2;
@@ -2341,7 +2456,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             want = Math.atan2(ship.velocity.y, ship.velocity.x) + Math.PI;
         } else {
             // evade / combined: perpendicular AWAY from threat (never onto it).
-            const tt = t!;
+            const tt = universe.impactThreat ?? reviveEff(); // eslint-disable-line
             const bx = tt.x - ship.pos.x;
             const by = tt.y - ship.pos.y;
             const bl = Math.hypot(bx, by) || 1;
@@ -2349,7 +2464,16 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             const py = bx / bl;
             const vPerp = ship.velocity.x * px + ship.velocity.y * py;
             const side = vPerp >= 0 ? 1 : -1;
-            if (safeMode === "brake-evade") {
+            // star: actively carry the ship AWAY from the star (not just hover and burn).
+            if (safeBodyKind === "star") {
+                const sx = ship.pos.x - universe.star.pos.x;
+                const sy = ship.pos.y - universe.star.pos.y;
+                const sl = Math.hypot(sx, sy) || 1;
+                const wx = px * side * 1.0 + (sx / sl) * 0.6;
+                const wy = py * side * 1.0 + (sy / sl) * 0.6;
+                want = Math.atan2(wy, wx);
+            } else if (safeMode === "brake-evade") {
+                // combined: brake slightly (retrograde bias) while dodging
                 const rx = -ship.velocity.x, ry = -ship.velocity.y;
                 const rm = Math.hypot(rx, ry) || 1;
                 const wx = px * side * 1.0 + (rx/rm) * 0.35;
@@ -2369,6 +2493,10 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         if (Math.abs(err) > 0.5) { ship.thrust.x = 0; ship.thrust.y = 0; }
         else { ship.thrust.x = Math.cos(ship.angle); ship.thrust.y = Math.sin(ship.angle); }
         playerTookControl = false;
+    }
+    function reviveEff(): { x: number; y: number } {
+        if (safeBody !== null) return { x: safeBody.pos.x, y: safeBody.pos.y };
+        return { x: ship.pos.x + 1, y: ship.pos.y };
     }
     // Landing assist REMOVED (user 2026-11-09): button + auto-land gone.
     // Physical slow-touch landing in the solver remains (not a button).
@@ -2449,6 +2577,17 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         universe.voidActive = voidActive;
     }
 
+    const deathShade = document.getElementById("deathShade");
+    function updateDeathShade() {
+        if (!deathShade) return;
+        const u = universe as unknown as { shipDead?: boolean; deathClock?: number };
+        if (u.shipDead) {
+            const ramp = clamp(((u.deathClock ?? 0) - 0.8) / 3, 0, 0.92);
+            deathShade.style.opacity = ramp.toFixed(2);
+        } else if (deathShade.style.opacity) {
+            deathShade.style.opacity = "";
+        }
+    }
     // ===== Minimap (user 2026-11-09): square, ship always centered, local view =====
     const minimapCanvas = document.getElementById("minimapCanvas") as HTMLCanvasElement | null;
     const threatArrow = document.getElementById("threatArrow");
@@ -2488,7 +2627,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         ctx.setLineDash([]);
         // route autopilot path
         if (routeNodeList.length > 0) {
-            const col = routePilot.phase === "stopped" ? "#E84838" : "#6ECB82";
+            const col = routePilot.phase === "stopped" ? "#E84838" : "#B7B7FF";
             ctx.strokeStyle = col;
             ctx.globalAlpha = 0.75;
             ctx.lineWidth = 2;
@@ -2604,8 +2743,8 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             return;
         }
         // unified ship-anchored indicator: on the ship's own ring (same anchor as the stick bars), moves with it
-        const dpr = window.devicePixelRatio || 1;
-        const r = 34 * dpr;
+        // CSS px, clear of both stick bars (bars at 25/40 CSS px)
+        const r = 56;
         const ax = shipAnchorPx.x > 0 ? shipAnchorPx.x : window.innerWidth / 2;
         const ay = shipAnchorPx.y > 0 ? shipAnchorPx.y : window.innerHeight / 2;
         threatArrow.style.left = (window.innerWidth / 2 + Math.cos(bearing) * r) + "px";
@@ -2705,6 +2844,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             updateBoostGlow(millis);
             updateScanFx();
             drawRadar();
+            updateDeathShade();
             drawMinimap();
             updateThreatArrow();
         },
