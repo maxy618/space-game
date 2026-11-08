@@ -111,7 +111,7 @@
     #safeButton {
       position: fixed;
       right: calc(14px + var(--safe-right));
-      bottom: calc(250px + var(--safe-bottom)); /* even 10px gaps in the stack: boost(24+84) → scan → radar → safe */
+      bottom: calc(316px + var(--safe-bottom)); /* above the landing button */
       width: 56px;
       height: 56px;
       padding: 0;
@@ -177,12 +177,12 @@
       transform: translateX(-50%) translateY(0);
     }
 
-    /* Landing assist button (user 2026-11-09): bottom-left but lifted
-       CLEAR of the telemetry text (pause-button logic — no visual merge). */
+    /* Landing assist button (user 2026-11-09): right stack, where the
+       shield used to be; the shield moved one slot UP. */
     #landButton {
       position: fixed;
-      left: calc(14px + var(--safe-left));
-      bottom: calc(118px + var(--safe-bottom));
+      right: calc(14px + var(--safe-right));
+      bottom: calc(250px + var(--safe-bottom));
       width: 56px;
       height: 56px;
       padding: 0;
