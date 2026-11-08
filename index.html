@@ -62,50 +62,6 @@
       white-space: pre;
     }
 
-    /* Player pause button (top-right). Same size as the boost button
-       (user 2026-11-08). Bespoke SVG: two rounded bars with a negative-space
-       orbit ring around them (original geometry, P06-T04). */
-    #pauseButton {
-      position: fixed;
-      top: calc(14px + var(--safe-top));
-      right: calc(14px + var(--safe-right));
-      width: 56px;
-      height: 56px;
-      padding: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(22, 22, 29, 0.72);
-      border: 1px solid var(--color-Eigengrau3);
-      border-radius: 14px;
-      cursor: pointer;
-      z-index: 40;
-      transition: background 0.15s, border-color 0.15s, transform 0.1s;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    /* Pressed state: settle + brighter fill (game feel). */
-    #pauseButton:active {
-      transform: translateY(1px);
-      background: rgba(60, 60, 76, 0.9);
-      border-color: var(--color-Eigengrau4);
-    }
-
-    #pauseButton:hover {
-      background: rgba(60, 60, 76, 0.85);
-      border-color: var(--color-Eigengrau4);
-    }
-
-    /* Focus-visible ring for keyboard users. */
-    #pauseButton:focus-visible {
-      outline: 2px solid var(--color-Autopilot);
-      outline-offset: 2px;
-    }
-
-    #pauseButton svg {
-      display: block;
-    }
-
     /* Safety system (user 2026-11-09): shield-A, above the radar button.
        Engaged look = boost-like highlight; intervention look = red. */
     #safeButton {
@@ -205,38 +161,6 @@
       pointer-events: auto;
     }
     #autoCancel svg { display: block; }
-    /* Landing assist button (user 2026-11-09): right stack, where the
-       shield used to be; the shield moved one slot UP. */
-    #landButton {
-      position: fixed;
-      right: calc(14px + var(--safe-right));
-      bottom: calc(184px + var(--safe-bottom));
-      width: 56px;
-      height: 56px;
-      padding: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      /* dense plate like the pause button (never merges with the text) */
-      background: rgba(22, 22, 29, 0.88);
-      border: 1px solid var(--color-Eigengrau3);
-      border-radius: 14px;
-      cursor: pointer;
-      z-index: 40;
-      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
-      -webkit-tap-highlight-color: transparent;
-    }
-    #landButton:disabled {
-      opacity: 0.38;
-      cursor: not-allowed;
-      background: rgba(22, 22, 29, 0.72); /* same style as the scanner's off-grey */
-    }
-    #landButton.armed {
-      border-color: #9ED8A4;
-      box-shadow: 0 0 12px rgba(110, 200, 130, 0.3);
-    }
-    #landButton svg { display: block; }
-
     /* Boost burner: the ONE enlarged action button (user 2026-11-09: 84px,
        1.5Г— the other buttons) вЂ” primary gesture, thumb-reachable in the
        bottom-right corner, same monochrome geometry language as pause. */
@@ -354,34 +278,14 @@
       -webkit-tap-highlight-color: transparent;
     }
     #scanButton { bottom: calc(118px + var(--safe-bottom)); }
-    #radarButton {
-      position: fixed;
-      top: calc(84px + var(--safe-top)); /* right UNDER the pause button */
-      right: calc(14px + var(--safe-right));
-      width: 56px;
-      height: 56px;
-      padding: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(22, 22, 29, 0.72);
-      border: 1px solid var(--color-Eigengrau3);
-      border-radius: 14px;
-      cursor: pointer;
-      z-index: 40;
-      transition: background 0.15s, border-color 0.15s, transform 0.1s;
-      -webkit-tap-highlight-color: transparent;
-    }
+
     #scanButton:active, #radarButton:active {
       transform: translateY(1px);
       background: rgba(60, 60, 76, 0.9);
       border-color: var(--color-Eigengrau4);
     }
     #scanButton:disabled { opacity: 0.38; cursor: not-allowed; background: rgba(22, 22, 29, 0.72); }
-    #radarButton.open {
-      border-color: var(--color-Console);
-      background: rgba(60, 60, 76, 0.92);
-    }
+
     #scanButton svg, #radarButton svg { display: block; }
 
     /* Radar / system map overlay (user 2026-11-09): schematic view in the
@@ -1007,6 +911,67 @@
       border-radius: 4px;
       font-weight: bold;
     }
+
+    /* Minimap (user 2026-11-09): square, top-center, ship always centered.
+       Replaces pause + radar buttons. Tapping it opens the radar; pause and
+       settings live inside the radar overlay. Banners sit below it so cards
+       and banners never overlap the minimap (user mandate). */
+    #minimapWrap {
+      position: fixed;
+      left: 50%;
+      top: calc(10px + var(--safe-top));
+      transform: translateX(-50%);
+      width: 168px;
+      height: 168px;
+      background: rgba(10, 10, 16, 0.82);
+      border: 1px solid var(--color-Eigengrau3);
+      border-radius: 14px;
+      overflow: hidden;
+      cursor: pointer;
+      z-index: 46;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #minimapCanvas { width: 100%; height: 100%; display: block; }
+    @media (max-width: 700px) {
+      #minimapWrap { width: 132px; height: 132px; }
+    }
+    /* Banners sit BELOW the minimap, never on top of it. */
+    #impactWarning { top: calc(192px + var(--safe-top)); }
+    #heatBanner { top: calc(236px + var(--safe-top)); }
+    #voidBanner, #voidBannerNear { top: calc(286px + var(--safe-top)); }
+    #safeToast { top: calc(330px + var(--safe-top)); }
+    #scanHint, #scanResult { top: calc(192px + var(--safe-top)); }
+    @media (max-width: 700px) {
+      #impactWarning { top: calc(154px + var(--safe-top)); }
+      #heatBanner { top: calc(196px + var(--safe-top)); }
+      #voidBanner, #voidBannerNear { top: calc(238px + var(--safe-top)); }
+      #safeToast { top: calc(280px + var(--safe-top)); }
+      #scanHint, #scanResult { top: calc(154px + var(--safe-top)); }
+    }
+    /* Threat indicator (user 2026-11-09): blinking chevron on the ship's
+       own ring (unified style with the course bars), attached to the ship.
+       Color copies the warning text color. */
+    #threatArrow {
+      position: fixed;
+      z-index: 44;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      filter: drop-shadow(0 0 6px currentColor);
+      animation: threatBlink 0.7s steps(2, start) infinite;
+      transform: translate(-50%, -50%) rotate(var(--arrow-rot, 0deg));
+      color: #D6A442;
+    }
+    #threatArrow.active { opacity: 1; }
+    @keyframes threatBlink { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0.25; } }
+    @media (prefers-reduced-motion: reduce) { #threatArrow { animation: none; } }
+    /* While radar or pause menu is open, gameplay buttons are fully hidden —
+       the map/pause owns the screen (user: no buttons behind the radar). */
+    body.ui-blocked #boostButton,
+    body.ui-blocked #scanButton,
+    body.ui-blocked #safeButton,
+    body.ui-blocked #autoCancel,
+    body.ui-blocked #minimapWrap { display: none; }
   </style>
 </head>
 <body>
@@ -1050,14 +1015,7 @@
 
   <div id="loading" class="loading">Loading...</div>
 
-  <!-- Player pause button: two rounded bars only вЂ” the orbit ring is gone,
-       leaving just the square button itself (user 2026-11-09). -->
-  <button id="pauseButton" type="button" aria-label="Pause">
-    <svg width="32" height="32" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <rect x="6.6" y="5.4" width="3.2" height="11.2" rx="1.6" fill="#B7B7FF" />
-      <rect x="12.2" y="5.4" width="3.2" height="11.2" rx="1.6" fill="#B7B7FF" />
-    </svg>
-  </button>
+
 
   <!-- Landing / interaction (user 2026-11-09): appears near a body; the
        tap runs a smooth AUTOMATIC touchdown (brake, approach, descend).
@@ -1072,14 +1030,7 @@
     </svg>
   </button>
 
-  <button id="landButton" type="button" aria-label="Land">
-    <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <circle cx="12" cy="12" r="8.6" fill="none" stroke="#7A7A9E" stroke-width="1.4"/>
-      <path d="M12 5 V14" stroke="#B7B7FF" stroke-width="1.6" stroke-linecap="round"/>
-      <path d="M8.4 11 L12 14.6 L15.6 11" fill="none" stroke="#B7B7FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-      <line x1="6" y1="18.6" x2="18" y2="18.6" stroke="#7A7A9E" stroke-width="1.6" stroke-linecap="round"/>
-    </svg>
-  </button>
+
 
   <!-- Boost burner (user 2026-11-08): sits under the pause button, thumb-
        reachable in the top-right stack. Enabled only at/above the 4000
@@ -1103,6 +1054,13 @@
     </svg>
   </button>
 
+  <!-- Minimap (user 2026-11-09): square, ship always centered, local view.
+       Replaces pause + radar buttons. Tap opens the radar; pause/settings
+       live inside the radar overlay. -->
+  <div id="minimapWrap" title="Open radar / pause">
+    <canvas id="minimapCanvas" width="336" height="336"></canvas>
+  </div>
+
   <!-- Radar / system map (above scan): schematic system view. The radar IS
        the autopilot map now вЂ” the old autopilot button under pause is gone
        (user 2026-11-09: two autopilots в†’ one). -->
@@ -1113,15 +1071,7 @@
     </svg>
   </button>
 
-  <button id="radarButton" type="button" aria-label="Radar">
-    <svg width="30" height="30" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" fill="none" stroke="#3C3C4C" stroke-width="1.4"/>
-      <circle cx="12" cy="12" r="5.4" fill="none" stroke="#7A7A9E" stroke-width="1.3"/>
-      <circle cx="12" cy="12" r="1.8" fill="#B7B7FF"/>
-      <circle cx="17.2" cy="9.4" r="1.5" fill="#B7B7FF"/>
-      <line x1="12" y1="12" x2="17.2" y2="9.4" stroke="#7A7A9E" stroke-width="1" stroke-dasharray="1.6 1.6"/>
-    </svg>
-  </button>
+
 
   <!-- Radar / system map overlay: schematic view, shared with autopilot.
        Closes ONLY via the вњ• button above the map's top-right corner. -->
@@ -1161,6 +1111,13 @@
         <svg width="30" height="30" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <circle cx="12" cy="12" r="9" fill="none" stroke="#4E9E5F" stroke-width="1.4"/>
           <path d="M7.6 12.4 L10.8 15.6 L16.4 8.6" fill="none" stroke="#9ED8A4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button id="routePause" class="radar-square-btn" type="button" aria-label="Pause">
+        <svg width="30" height="30" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" fill="none" stroke="#7A7A9E" stroke-width="1.4"/>
+          <rect x="9" y="8" width="2.4" height="8" rx="1.2" fill="#B7B7FF"/>
+          <rect x="12.6" y="8" width="2.4" height="8" rx="1.2" fill="#B7B7FF"/>
         </svg>
       </button>
       <button id="routeClose" class="radar-square-btn" type="button" aria-label="Close radar">
@@ -1206,6 +1163,7 @@
     <dl id="objectInfoRows"></dl>
   </div>
 
+  <div id="threatArrow" aria-hidden="true"><svg width="34" height="34" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 3 L20 19 L12 15.5 L4 19 Z" fill="currentColor" stroke="rgba(0,0,0,0.35)" stroke-width="1"/></svg></div>
   <div id="pauseMenu" hidden>
     <div class="pause-menu-title">PAUSED</div>
     <button id="pauseContinue" class="pause-menu-btn" type="button">CONTINUE</button>

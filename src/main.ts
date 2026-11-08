@@ -177,6 +177,32 @@ const drawFn = activity.draw;
 let animationID = -1;
 const clock = new SimClock();
 
+// Minimap must never sit on top of the telemetry text (same collision logic
+// the old pause button used): slide it just below the first text line when
+// they would overlap, otherwise it rests at top-center.
+function keepMinimapClear() {
+    const topText = document.getElementById("topText");
+    const wrap = document.getElementById("minimapWrap");
+    if (!topText || !wrap) return;
+    const lineRange = document.createRange();
+    lineRange.selectNodeContents(topText);
+    const lineRects = Array.from(lineRange.getClientRects());
+    const firstLine = lineRects.length > 0 ? lineRects[0] : topText.getBoundingClientRect();
+    const box = wrap.getBoundingClientRect();
+    const margin = 8;
+    const overlaps =
+        firstLine.right + margin > box.left &&
+        firstLine.left < box.right &&
+        firstLine.bottom + margin > box.top &&
+        firstLine.top < box.bottom;
+    if (overlaps) {
+        const want = (firstLine.bottom + margin).toFixed(1) + "px";
+        if (wrap.style.top !== want) wrap.style.top = want;
+    } else if (wrap.style.top) {
+        wrap.style.top = "";
+    }
+}
+
 function animation(millis: number) {
     const drawTime = clock.drawTime(millis);
     if (clock.skippedWarning) {
@@ -189,7 +215,7 @@ function animation(millis: number) {
     // the map keeps refreshing (jitter sweep, route line, ship marker).
     if (clock.shouldDraw() || radarOpen) drawFn(drawTime, canvasContext, helper);
     clock.consumeRedraw();
-    keepPauseButtonClear();
+    keepMinimapClear();
     animationID = requestAnimationFrame(animation);
 }
 
@@ -200,7 +226,6 @@ function onCanvasResize() {
     canvas.width = Math.round(clientRect.width * window.devicePixelRatio);
     canvas.height = Math.round(clientRect.height * window.devicePixelRatio);
     clock.needRedraw = true;
-    keepPauseButtonClear();
 }
 
 canvas.hidden = false;
@@ -343,14 +368,15 @@ speedButton.addEventListener("click", initSpeedControl((newSpeed: number, text: 
 // Player-facing pause: a styled button in the top-right corner that stops the
 // game and opens a full-screen frosted pause menu (Continue, Settings, Exit).
 // No seed or debug controls. Settings and Exit are placeholders for now.
-const pauseButton = document.getElementById("pauseButton") as HTMLButtonElement;
+const minimapWrap = document.getElementById("minimapWrap") as HTMLElement | null;
 const pauseMenu = document.getElementById("pauseMenu") as HTMLDivElement;
 const pauseContinue = document.getElementById("pauseContinue") as HTMLButtonElement;
 const pauseSettings = document.getElementById("pauseSettings") as HTMLButtonElement;
 const pauseExit = document.getElementById("pauseExit") as HTMLButtonElement;
 
 function setPlayerPaused(paused: boolean) {
-    if (paused) {
+    if (paused) { document.body.classList.add("ui-blocked");
+
         clock.pause(performance.now());
         disableTouch();
         pauseMenu.hidden = false;
@@ -362,8 +388,8 @@ function setPlayerPaused(paused: boolean) {
         clearPausePulseTimers();
         // Drop any pulses still animating; the menu fades out anyway.
         pauseMenu.querySelectorAll(".pause-pulse").forEach((p) => p.remove());
-        clock.resume(performance.now());
-        enableTouch();
+        // Radar open still owns the pause: only unblock + resume when it too is closed.
+        if (!radarOpen) { document.body.classList.remove("ui-blocked"); clock.resume(performance.now()); enableTouch(); }
     }
 }
 
@@ -408,54 +434,9 @@ function spawnPausePulseChain() {
     }
 }
 
-// Layout guarantee: the pause button must never sit on top of the telemetry
-// text. Only the FIRST telemetry line can reach the top-right corner (the
-// rest of the block grows downward), so the button slides just below that
-// line when they would collide, with a proper margin. Otherwise it rests at
-// its normal position, cleared by the phone safe-area inset (P04-T03).
-const PAUSE_BUTTON_TOP_PX = 14;
-const COLLISION_MARGIN_PX = 8;
-
-/** Pixel height of the phone safe-area inset at the top (env() via :root var). */
-function safeAreaTopPx(): number {
-    const v = getComputedStyle(document.documentElement).getPropertyValue("--safe-top");
-    const n = parseFloat(v);
-    return Number.isFinite(n) ? n : 0;
-}
-
-let lastPauseButtonTop = -1;
-function keepPauseButtonClear() {
-    const topText = document.getElementById("topText");
-    if (!topText) return;
-    const lineRange = document.createRange();
-    lineRange.selectNodeContents(topText);
-    const lineRects = Array.from(lineRange.getClientRects());
-    // The first line is what could ever overlap a top-right button.
-    const firstLine = lineRects.length > 0 ? lineRects[0] : topText.getBoundingClientRect();
-    const buttonBox = pauseButton.getBoundingClientRect();
-    const firstLineBottom = firstLine.bottom + 8; // container margin (8px)
-    const overlaps =
-        firstLine.right + COLLISION_MARGIN_PX > buttonBox.left &&
-        firstLine.left < buttonBox.right &&
-        firstLineBottom + COLLISION_MARGIN_PX > buttonBox.top &&
-        firstLine.top < buttonBox.bottom;
-    const top = overlaps ? (firstLineBottom + COLLISION_MARGIN_PX) : PAUSE_BUTTON_TOP_PX + safeAreaTopPx();
-    // Only touch the style when the value actually changes: rewriting it every
-    // frame makes the button permanently "unstable" for clicks and wastes layout.
-    if (top !== lastPauseButtonTop) {
-        lastPauseButtonTop = top;
-        pauseButton.style.top = top + "px";
-    }
-}
-
-pauseButton.addEventListener("click", function () {
-    // Toggle: if the menu is closed (hidden) we pause; if it is open we resume.
-    setPlayerPaused(pauseMenu.hidden);
-});
-
 // Keyboard P / Escape reaches the same pause toggle through the action layer.
 inputLayer.setEdgeHandler("pause", function () {
-    pauseButton.click();
+    setPlayerPaused(pauseMenu.hidden);
 });
 
 // Boost burner (user 2026-11-08): only engages at/above the 4000 cruise cap;
@@ -525,7 +506,6 @@ scanButton.addEventListener("click", () => {
     scanButton.blur();
     if (revealed > 0) console.log("SCAN: revealed " + revealed + " bod" + (revealed === 1 ? "y" : "ies"));
 });
-const radarButton = document.getElementById("radarButton") as HTMLButtonElement;
 const radarCanvas = document.getElementById("radarCanvas") as HTMLCanvasElement;
 const routeCloseBtn = document.getElementById("routeClose") as HTMLButtonElement;
 const routeAdd = document.getElementById("routeAdd") as HTMLButtonElement;
@@ -561,7 +541,7 @@ function setRadarDelete(on: boolean) {
 }
 function setRadarOpen(open: boolean) {
     radarOpen = open;
-    radarButton.classList.toggle("open", open);
+    document.body.classList.toggle("ui-blocked", open);
     activity.setRadarOpen(open); // toggles #radarOverlay.open inside MainActivity15
     // Radar = pause (user 2026-11-09): the simulation freezes while the map
     // is open; closing resumes it (unless the pause MENU is already up).
@@ -573,15 +553,11 @@ function setRadarOpen(open: boolean) {
         clock.resume(performance.now());
     }
 }
-radarButton.addEventListener("click", () => {
-    setRadarOpen(!radarOpen);
-    radarButton.blur();
-});
+minimapWrap?.addEventListener("click", () => setRadarOpen(true));
+
 // Safety system (user 2026-11-09): default ON (persisted). Tap toggles it;
 // tapping mid-takeover aborts the takeover and returns control at once.
 const safeBtn = document.getElementById("safeButton") as HTMLButtonElement | null;
-const landBtn = document.getElementById("landButton") as HTMLButtonElement | null;
-landBtn?.addEventListener("click", () => { activity.startAutoLand?.(); landBtn.blur(); });
 // Route autopilot CANCEL: left side above the telemetry — outside the radar
 // (user 2026-11-09); appears only while a route is flying.
 const autoCancelBtn = document.getElementById("autoCancel") as HTMLButtonElement | null;
@@ -614,10 +590,12 @@ if (safeBtn) {
 }
 // Close ONLY via the bottom-row ✕ (no backdrop close, no top cross).
 routeCloseBtn.addEventListener("click", () => setRadarOpen(false));
+const routePauseBtn = document.getElementById("routePause") as HTMLButtonElement | null;
+routePauseBtn?.addEventListener("click", () => { setPlayerPaused(true); routePauseBtn.blur(); });
 // keyboard: Q scans, R toggles the radar
 inputLayer.setEdgeHandler("scan", () => scanButton.click());
 window.addEventListener("keydown", (e) => {
-    if (e.code === "KeyR" && !e.repeat) radarButton.click();
+    if (e.code === "KeyR" && !e.repeat) setRadarOpen(!radarOpen);
 });
 
 // ===== Route autopilot UI (user 2026-11-09 v4) =====

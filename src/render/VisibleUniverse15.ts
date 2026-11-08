@@ -316,7 +316,7 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         if (autopilot !== null && autopilot.enabled) {
             this.drawAutopilot(autopilot);
         }
-        this.drawSpacecraft(ship);
+        if (!(universe as VisibleUniverse15).shipDead) this.drawSpacecraft(ship);
     }
     /**
      * Asteroids (user 2026-11-08): irregular seeded polygon, crater shading,
@@ -968,6 +968,7 @@ export class VisibleUniverse15 extends VisibleUniverse {
                 "Landroid",
                 "created planet", p, "with period", period, "and vel", speed
             );
+            p.id = it + 1; // stable id 1..N (was lost in the Missions revert; broke route-by-id)
             p.description = this.namer.describePlanet(this.rngForInit);
             p.atmosphere = this.namer.describeAtmo(this.rngForInit);
             p.flora = this.namer.describeLife(this.rngForInit);
@@ -1056,7 +1057,11 @@ export class VisibleUniverse15 extends VisibleUniverse {
     starProximity = 0;
     starCountdown: number | null = null;
     starHot = false;
+    shipDead = false;
+    deathClock = 0;
+    deathPos = { x: 0, y: 0 };
     updateStarHazard(dt: number) {
+        if (this.shipDead) { this.deathClock += dt; if (this.deathClock >= 1.0) this.respawnShip(); return; }
         const ship = this.ship;
         const dist = ship.pos.distance(this.star.pos);
         const res = starHeatStep(ship.heat, dist, this.star.radius, dt, ship.profile.heatTolerance, ship.profile.coolRate, this.starCountdown);
@@ -1151,29 +1156,31 @@ export class VisibleUniverse15 extends VisibleUniverse {
             this.addEntity(spark);
         }
 
-        // respawn: equivalent to the initial spawn (same rng stream, same
-        // orbit band and random heading). Explored planets, sim time and the
-        // universe state persist; only the ship starts over.
-        Vec2_makeWithAngleMag(
-            ship.pos,
-            this.rng.float() * PI * 2,
-            this.rng.minmax(UniverseConst.PLANET_ORBIT_RANGE_MIN, UniverseConst.PLANET_ORBIT_RANGE_MAX)
-        ).addSelf(this.star.pos);
-        // position-based dynamics: velocity is re-derived from (pos − opos)/dt
-        // each step, so the teleport must sync opos or the ship would gain a
-        // phantom megameter-per-second velocity on the respawn frame
+        // death delay (user 2026-11-09): show the explosion fully + ~1s, THEN respawn.
+        this.shipDead = true;
+        this.deathClock = 0;
+        this.deathPos = { x: ship.pos.x, y: ship.pos.y };
+        ship.velocity.x = 0; ship.velocity.y = 0; ship.thrust.x = 0; ship.thrust.y = 0; ship.boost = false;
+    }
+    logicalSpawn(ship: import("../universe/Universe").Spacecraft) {
+        const anchor = this.planets.length > 0 ? this.planets.slice().sort((a,b)=>a.pos.distance(this.star.pos)-b.pos.distance(this.star.pos))[0] : null;
+        const orbitR = anchor ? anchor.pos.distance(this.star.pos) : UniverseConst.PLANET_ORBIT_RANGE_MIN;
+        const ang = anchor ? Math.atan2(anchor.pos.y - this.star.pos.y, anchor.pos.x - this.star.pos.x) + Math.PI * 0.5 : Math.PI / 4;
+        Vec2_makeWithAngleMag(ship.pos, ang, orbitR).addSelf(this.star.pos);
         Vec2_copy(ship.opos, ship.pos);
-        ship.angle = this.rng.float() * PI * 2;
-        ship.velocity.x = 0;
-        ship.velocity.y = 0;
-        ship.thrust.x = 0;
-        ship.thrust.y = 0;
-        ship.boost = false;
-        ship.thrustMultiplier = 1;
-        ship.heat = 0;
-        ship.launchClock = 0;
-        ship.transit = false;
-        ship.track = new Track();
+        const period = Math.sqrt(orbitR * orbitR * orbitR / Math.max(1, this.star.mass)) * UniverseConst.KEPLER_CONSTANT;
+        const spd = period > 0 ? 2 * Math.PI * orbitR / period : 0;
+        ship.velocity.x = Math.cos(ang + Math.PI / 2) * spd; ship.velocity.y = Math.sin(ang + Math.PI / 2) * spd;
+        ship.angle = ang + Math.PI / 2;
+        ship.thrust.x = 0; ship.thrust.y = 0; ship.boost = false; ship.thrustMultiplier = 1; ship.heat = 0; ship.launchClock = 0; ship.transit = false; ship.track = new Track();
+    }
+    respawnShip() {
+        const ship = this.ship as Spacecraft15;
+        this.shipDead = false; this.deathClock = 0;
+        this.starProximity = 0; this.starCountdown = null; this.starHot = false;
+        if (ship.landing !== null) { this.removeConstraint(ship.landing); ship.landing.ship = null; ship.landing = null; }
+        this.logicalSpawn(ship);
+        Vec2_copy(ship.opos, ship.pos);
     }
 
     /**

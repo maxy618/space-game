@@ -17,11 +17,11 @@
  */
 
 /** Heating begins (corona outer edge), × star radius. */
-export const STAR_CORONA_FACTOR = 1.9;
+export const STAR_CORONA_FACTOR = 1.6;
 /** Inner boundary (≈ touching the surface) — instant destruction, × radius. */
 export const STAR_KILL_FACTOR = 1.08;
 /** Proximity t beyond which the hot-zone countdown starts (0..1). */
-export const STAR_HOTZONE_T = 0.45;
+export const STAR_HOTZONE_T = 0.55;
 /** Heat recovered per second while outside the corona. */
 export const STAR_COOL_RATE = 0.3;
 /** Countdown resets when the hull cools below this. */

@@ -18,147 +18,94 @@
 import { timeToImpact, IMPACT_WARN_SECONDS } from "../universe/CollisionPredict";
 
 export interface RouteTarget {
-    x: number;
-    y: number;
-    /** Surface radius (m) вЂ” the pilot stops arriveDist above it. */
-    radius: number;
-    vx?: number;
-    vy?: number;
+    x: number; y: number; radius: number; vx?: number; vy?: number;
 }
-
 export interface RouteThreat {
-    x: number;
-    y: number;
-    vx: number;
-    vy: number;
-    radius: number;
+    x: number; y: number; vx: number; vy: number; radius: number;
 }
-
 export type RoutePilotPhase = "chase" | "brake" | "arrived" | "stopped";
+export interface RoutePilotState { active: boolean; phase: RoutePilotPhase; wantBoost: boolean; }
+export function createRoutePilot(): RoutePilotState { return { active: false, phase: "chase", wantBoost: false }; }
+export const PILOT_ARRIVE_DIST = 600;
+export const PILOT_RESUME_ANGLE = Math.PI / 12;
 
-export interface RoutePilotState {
-    active: boolean;
-    phase: RoutePilotPhase;
-    /** Seconds of boost still wanted (recomputed each step). */
-    wantBoost: boolean;
+function relInfo(tx:number,ty:number,tvx:number,tvy:number,sx:number,sy:number,svx:number,svy:number){
+    const dx=tx-sx, dy=ty-sy; const d=Math.hypot(dx,dy);
+    const closing=((svx-tvx)*dx+(svy-tvy)*dy)/Math.max(1e-9,d);
+    return {d,closing,dx,dy};
 }
 
-export function createRoutePilot(): RoutePilotState {
-    return { active: false, phase: "chase", wantBoost: false };
-}
-
-/** Relative-approach helpers (target velocity included). */
-export const PILOT_ARRIVE_DIST = 600; // stop this far above the surface
-export const PILOT_RESUME_ANGLE = Math.PI / 12; // 15В°
-
-function relDist(tx: number, ty: number, tvx: number, tvy: number, sx: number, sy: number, svx: number, svy: number): { d: number; closing: number } {
-    const dx = tx - sx;
-    const dy = ty - sy;
-    const d = Math.hypot(dx, dy);
-    // positive closing = the distance shrinks (ship moving toward target)
-    const closing = ((svx - tvx) * dx + (svy - tvy) * dy) / Math.max(1e-9, d);
-    return { d, closing };
-}
-
-/** Closing speed toward the target along the line of sight (m/s). */
-
-/**
- * One pilot step. Mutates thrust/boost via the returned intent вЂ” the
- * caller applies it (keeps this pure and testable).
- */
-export interface PilotIntent {
-    thrustX: number;
-    thrustY: number;
-    boost: boolean;
-    stopRequested: boolean;
-}
+export interface PilotIntent { thrustX:number; thrustY:number; boost:boolean; stopRequested:boolean; }
 
 export function pilotStep(
     s: RoutePilotState,
     target: RouteTarget,
     threats: RouteThreat[],
-    ship: { x: number; y: number; vx: number; vy: number; angle: number },
-    dt: number,
-    engineAccel: number,
-    opts: { intermediate?: boolean } = {},
+    ship: { x:number; y:number; vx:number; vy:number; angle:number },
+    dt:number,
+    engineAccel:number,
+    opts:{ intermediate?:boolean }={},
 ): PilotIntent {
-    const none: PilotIntent = { thrustX: 0, thrustY: 0, boost: false, stopRequested: false };
-    if (!s.active) return none;
-
-    // 1. threat check: any body on the course closing within the warn window
-    let threat = false;
-    for (const b of threats) {
-        const rx = b.x - ship.x;
-        const ry = b.y - ship.y;
-        const ux = b.vx - ship.vx;
-        const uy = b.vy - ship.vy;
-        const res = timeToImpact(rx, ry, ux, uy, b.radius + 30);
-        if (res.tti !== null && res.tti < IMPACT_WARN_SECONDS) { threat = true; break; }
+    const none:PilotIntent={thrustX:0,thrustY:0,boost:false,stopRequested:false};
+    if(!s.active) return none;
+    let threat=false;
+    for(const b of threats){
+        const rx=b.x-ship.x, ry=b.y-ship.y, ux=b.vx-ship.vx, uy=b.vy-ship.vy;
+        const res=timeToImpact(rx,ry,ux,uy,b.radius+30);
+        if(res.tti!==null && res.tti<IMPACT_WARN_SECONDS){threat=true;break;}
     }
-    if (threat && s.phase !== "stopped") s.phase = "stopped";
-
-    const { d, closing } = relDist(target.x, target.y, target.vx ?? 0, target.vy ?? 0, ship.x, ship.y, ship.vx, ship.vy);
-    const bearing = Math.atan2(target.y - ship.y, target.x - ship.x);
-    const headingErr = Math.abs(((bearing - ship.angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-
-    if (s.phase === "stopped") {
-        if (threat) {
-            // hold the stop: brake to zero, wait for the player
-            const spd = Math.hypot(ship.vx, ship.vy);
-            if (spd > 5) {
-                return { thrustX: -ship.vx / spd, thrustY: -ship.vy / spd, boost: false, stopRequested: true };
-            }
-            return { ...none, stopRequested: true };
+    if(threat && s.phase!=="stopped") s.phase="stopped";
+    const tvx=target.vx??0, tvy=target.vy??0;
+    const info=relInfo(target.x,target.y,tvx,tvy,ship.x,ship.y,ship.vx,ship.vy);
+    const bearing=Math.atan2(target.y-ship.y,target.x-ship.x);
+    const headingErr=Math.abs(((bearing-ship.angle+Math.PI*3)%(Math.PI*2))-Math.PI);
+    // velocity-aware intercept: aim where the (moving) target will be
+    const relSpd=Math.hypot(ship.vx-tvx,ship.vy-tvy);
+    const interceptT=Math.max(0, info.d-2600)/Math.max(1200,relSpd);
+    const aimX=target.x+tvx*interceptT, aimY=target.y+tvy*interceptT;
+    const aimBearing=Math.atan2(aimY-ship.y,aimX-ship.x);
+    if(s.phase==="stopped"){
+        if(threat){
+            const spd=Math.hypot(ship.vx,ship.vy);
+            if(spd>5) return {thrustX:-ship.vx/spd,thrustY:-ship.vy/spd,boost:false,stopRequested:true};
+            return { ...none, stopRequested:true };
         }
-        // resume only when the player has steered back onto the course
-        if (headingErr < PILOT_RESUME_ANGLE) s.phase = "chase";
-        else return { ...none, stopRequested: true };
+        if(headingErr<PILOT_RESUME_ANGLE) s.phase="chase";
+        else return { ...none, stopRequested:true };
     }
-
-    // INTERMEDIATE nodes (user 2026-11-09): no arrival, no braking window вЂ”
-    // pure pursuit; the pass may drift slightly off the node by inertia.
-    // PURSUIT BOOST REMOVED (user 2026-11-09): the route autopilot must
-    // NEVER fire the burner itself — boost is the player's manual call.
-    if (opts.intermediate) {
-        s.phase = "chase";
-        s.wantBoost = false;
-        const ax = Math.cos(bearing);
-        const ay = Math.sin(bearing);
-        return { thrustX: ax, thrustY: ay, boost: false, stopRequested: false };
+    if(opts.intermediate){
+        s.phase="chase"; s.wantBoost=false;
+        const ax=Math.cos(aimBearing), ay=Math.sin(aimBearing);
+        return {thrustX:ax,thrustY:ay,boost:false,stopRequested:false};
     }
-
-    const arrive = target.radius + PILOT_ARRIVE_DIST;
-    if (d <= arrive + 50) {
-        s.phase = "arrived";
-        // Final arrival (user 2026-11-09): come to a FULL stop above the
-        // node, not merely coast вЂ” retrograde the remaining velocity.
-        const spd = Math.hypot(ship.vx, ship.vy);
-        if (spd > 40) {
-            return { thrustX: -ship.vx / spd, thrustY: -ship.vy / spd, boost: false, stopRequested: false };
-        }
+    const arrive=target.radius+PILOT_ARRIVE_DIST;
+    if(info.d<=arrive+50){
+        s.phase="arrived";
+        const spd=Math.hypot(ship.vx,ship.vy);
+        if(spd>40) return {thrustX:-ship.vx/spd,thrustY:-ship.vy/spd,boost:false,stopRequested:false};
         return none;
     }
-
-    // braking window: vВІ/(2a) distance heuristic, evaluated on closing speed
-    const brakeDist = (closing * closing) / (2 * engineAccel) + arrive;
-    if (d < brakeDist * 1.15 && closing > 50) s.phase = "brake";
-    else s.phase = closing > -50 ? "chase" : "brake";
-
-    if (s.phase === "brake") {
-        // full retrograde of the RELATIVE velocity вЂ” kills the closing speed
-        const rvx = ship.vx - (target.vx ?? 0);
-        const rvy = ship.vy - (target.vy ?? 0);
-        const rm = Math.hypot(rvx, rvy);
-        if (rm > 20) {
-            return { thrustX: -rvx / rm, thrustY: -rvy / rm, boost: false, stopRequested: false };
-        }
+    // speed profile: cannot approach faster than the braking curve allows
+    const vmax=Math.sqrt(2*Math.max(1,engineAccel)*Math.max(0,info.d-arrive))*0.85+40;
+    const rvx=ship.vx-tvx, rvy=ship.vy-tvy;
+    const rm=Math.hypot(rvx,rvy);
+    const brakeDist=(Math.max(0,info.closing)*Math.max(0,info.closing))/(2*Math.max(1,engineAccel))+arrive;
+    if(info.d<brakeDist*1.2 && info.closing>50) s.phase="brake";
+    else if(s.phase==="brake"){
+        if(info.d>brakeDist*1.35 || info.closing<-40 || rm>vmax+600) s.phase="chase";
+    } else s.phase=info.closing>-50 ? "chase" : "brake";
+    if(s.phase==="brake"){
+        if(rm>20) return {thrustX:-rvx/rm,thrustY:-rvy/rm,boost:false,stopRequested:false};
         return none;
     }
-
-    // chase: align + full thrust. NO boost (user 2026-11-09: the autopilot
-    // never fires the burner itself).
-    s.wantBoost = false;
-    const ax = Math.cos(bearing);
-    const ay = Math.sin(bearing);
-    return { thrustX: ax, thrustY: ay, boost: false, stopRequested: false };
+    s.wantBoost=false;
+    // chase: steer by velocity error, cap approach speed, never boost
+    let ax=Math.cos(aimBearing), ay=Math.sin(aimBearing);
+    if(rm>vmax && rm>1){
+        const vxN=rvx/rm, vyN=rvy/rm;
+        const proj=ax*vxN+ay*vyN;
+        if(proj>0.25){ ax=-vxN; ay=-vyN; }
+    }
+    s.phase="chase";
+    return {thrustX:ax,thrustY:ay,boost:false,stopRequested:false};
 }
