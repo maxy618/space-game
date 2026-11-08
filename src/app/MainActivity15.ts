@@ -962,7 +962,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const target = universe.follow instanceof Spacecraft ? universe.follow as Spacecraft : null;
         // safety takeover (user 2026-11-09): the joystick does not respond
         // until the shield hands control back (or the player aborts it).
-        if (target !== null && safeHold) {
+        if (target !== null && (safeHold || autoLand)) {
             target.thrust.x = 0;
             target.thrust.y = 0;
             lastFrameMillis = millis;
@@ -2287,6 +2287,85 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         ship.thrust.y = Math.sin(ship.angle);
         playerTookControl = false;
     }
+    // ===== Landing assist (user 2026-11-09): the landing button works like
+    // the scanner's gate — near a planet at low speed (<1000 m/s) it is
+    // armed; a tap runs a smooth AUTOMATIC touchdown (brake, approach,
+    // descend) and takes over like the safety shield.
+    const landButton = document.getElementById("landButton") as HTMLButtonElement | null;
+    let autoLand = false;
+    let autoLandBody: Planet | null = null;
+    function nearestLandable(): Planet | null {
+        let best: Planet | null = null;
+        let bestD = Infinity;
+        const consider = (p: Planet) => {
+            const d = p.pos.distance(ship.pos) - ship.radius - p.radius;
+            if (d < bestD && d < 9000) { bestD = d; best = p; }
+        };
+        for (const p of universe.planets) consider(p);
+        const star = universe.star;
+        const ds = star.pos.distance(ship.pos) - ship.radius - star.radius;
+        // star is NOT landable (kill zone) — skip it on purpose
+        return best;
+    }
+    function landButtonGate() {
+        if (!landButton) return;
+        const b = nearestLandable();
+        const ok = b !== null && ship.velocity.mag() < 1000;
+        landButton.disabled = !ok && !autoLand;
+        landButton.classList.toggle("armed", ok);
+    }
+    function startAutoLand() {
+        const b = nearestLandable();
+        if (!b) return;
+        autoLand = true;
+        autoLandBody = b;
+        routePilot.active = false; // landing outranks the route
+    }
+    function autoLandUpdate(dt: number) {
+        if (!autoLand) return;
+        if (ship.landing !== null) {
+            autoLand = false;
+            autoLandBody = null;
+            safeShowToast("LANDED");
+            return;
+        }
+        const b = autoLandBody;
+        if (!b) { autoLand = false; return; }
+        const dx = b.pos.x - ship.pos.x;
+        const dy = b.pos.y - ship.pos.y;
+        const dist = Math.hypot(dx, dy);
+        const surface = b.radius + ship.radius;
+        const spd = ship.velocity.mag();
+        const n = { x: dx / dist, y: dy / dist };
+        // brake first if too fast, else steer at the surface point and gloss
+        const approachSpeed = dist - surface < 2500 ? 220 : 260 + Math.min(420, (dist - surface) * 0.08);
+        let want: number;
+        const vx = ship.velocity.x, vy = ship.velocity.y;
+        const closing = vx * n.x + vy * n.y;
+        const vv = Math.hypot(vx, vy);
+        const relVx = vx - b.velocity.x, relVy = vy - b.velocity.y;
+        const rel = Math.hypot(relVx, relVy);
+        if (rel > approachSpeed + 60) {
+            want = Math.atan2(relVy, relVx) + Math.PI; // retro burn
+        } else {
+            want = Math.atan2(dy, dx);
+        }
+        let err = want - ship.angle;
+        while (err > PI) err -= PI * 2;
+        while (err < -PI) err += PI * 2;
+        const maxTurn = 2.8 * dt;
+        ship.angle += clamp(err, -maxTurn, maxTurn);
+        (ship as unknown as { steerMotor?: number }).steerMotor = maxTurn > 0 ? clamp(err / maxTurn, -1, 1) : 0;
+        const thrustOn = rel > approachSpeed * 0.55 || dist - surface > 150;
+        if (thrustOn) {
+            ship.thrust.x = Math.cos(ship.angle);
+            ship.thrust.y = Math.sin(ship.angle);
+        } else {
+            ship.thrust.x = 0;
+            ship.thrust.y = 0;
+        }
+        playerTookControl = false;
+    }
     // Abort the takeover from the button (tapped in main.ts).
     function releaseHold() {
         if (!safeHold) return;
@@ -2431,6 +2510,8 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         draw: (millis: number, context: CanvasRenderingContext2D, helper: CanvasHelper) => {
             applyKeyboardFlight(millis);
             safeHoldUpdate(universe.dt);
+            autoLandUpdate(universe.dt);
+            landButtonGate();
             pilotUpdate(universe.dt);
             universe.simulateFrame(millis);
             updateImpactWarning(millis);
@@ -2462,6 +2543,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         radarIsPickMode: () => radarPickMode,
         setSafetyEnabled,
         releaseHold,
+        startAutoLand,
         isSafetyHold: () => safeHold,
         setRadarDeleteMode: (v: boolean) => { radarDeleteMode = v; },
         radarIsDeleteMode: () => radarDeleteMode,

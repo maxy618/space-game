@@ -580,6 +580,8 @@ radarButton.addEventListener("click", () => {
 // Safety system (user 2026-11-09): default ON (persisted). Tap toggles it;
 // tapping mid-takeover aborts the takeover and returns control at once.
 const safeBtn = document.getElementById("safeButton") as HTMLButtonElement | null;
+const landBtn = document.getElementById("landButton") as HTMLButtonElement | null;
+landBtn?.addEventListener("click", () => { activity.startAutoLand?.(); landBtn.blur(); });
 if (safeBtn) {
     let stored = "1";
     try { stored = localStorage.getItem("safetyEnabled") ?? "1"; } catch { /* private mode */ }

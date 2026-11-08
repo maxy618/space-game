@@ -177,20 +177,22 @@
       transform: translateX(-50%) translateY(0);
     }
 
-    /* Landing assist button (user 2026-11-09): bottom-left, thumb range. */
+    /* Landing assist button (user 2026-11-09): bottom-left but lifted
+       CLEAR of the telemetry text (pause-button logic — no visual merge). */
     #landButton {
       position: fixed;
       left: calc(14px + var(--safe-left));
-      bottom: calc(24px + var(--safe-bottom));
-      width: 64px;
-      height: 64px;
+      bottom: calc(118px + var(--safe-bottom));
+      width: 56px;
+      height: 56px;
       padding: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(22, 22, 29, 0.72);
+      /* dense plate like the pause button (never merges with the text) */
+      background: rgba(22, 22, 29, 0.88);
       border: 1px solid var(--color-Eigengrau3);
-      border-radius: 16px;
+      border-radius: 14px;
       cursor: pointer;
       z-index: 40;
       transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
