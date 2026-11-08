@@ -47,18 +47,11 @@ Use `docs/templates/RISK_TEMPLATE.md`. Track science, source licensing, renderin
 - **Mitigation:** Every graphics-touching task includes lighting/material work in its Definition of Done; ROADMAP phases 6–8, 13, 16–18, 24–25 embed lighting/postFX requirements; quality tiers keep PC and Android performance in budget.
 - **Recheck trigger:** Each phase exit gate; visual audits at normal size and close-up crops.
 
-## R-006 — Spawn in void + invisible landmarks (found in P08 audio audit)
+## R-006 — Spawn in void + invisible landmarks — FIXED 2026-11-09
 
-- **Category:** Gameplay / immersion
-- **Risk:** Ship spawns up to ~118 km from the star with a ~450 m view, so
-  the opening screen is empty void; the black hole sits at (180000,-140000)
-  — outside `UNIVERSE_RANGE` (200000) — with no visible cue until metres
-  away. First impression is “nothing here”.
-- **Evidence:** Seed-42 audit (ship at 85668,81716; star r 7763); screenshots
-  EVIDENCE/batch6/44–48.
-- **Player impact:** Core-loop boredom before any discovery; landmarks feel absent.
-- **Mitigation (deferred):** Spawn near the innermost planet orbit + distant
-  star glare/lensing beacon on the HUD compass; BH moved inside the range
-  with a radar marker. Belongs to a navigation mission, not 06–08.
-- **Recheck trigger:** Next gameplay mission kickoff; do not claim the
-  immersion problem is solved by graphics alone.
+- **Fix:** ship spawns on the innermost planet's orbit track (6 km ahead,
+  planet's exact circular speed — stable, no impact), horizon glare +
+  planet edge diamond on the first screen, BH moved inside the range
+  (110000,−85000, 139 km) with radar marker + routable node.
+- **Evidence:** `EVIDENCE/batch6/78_spawn_cues.png`, `82_bh_close.png`,
+  `EVIDENCE/PHASE_08/P08-T05/r006-closure.md`.

@@ -54,6 +54,11 @@ const PI = Math.PI;
 const abs = Math.abs;
 const sqrt = Math.sqrt;
 
+/** Black-hole landmark (P07-T04 + R-006 fix): INSIDE the playable range
+ *  (dist ~139 km < 200 km) so the encounter is actually reachable, with a
+ *  radar marker + route node (MainActivity15). Sentinel stable id -777. */
+export const BLACK_HOLE = { x: 110000, y: -85000, r: 2600, id: -777 } as const;
+
 export class ZoomedDrawScope15 extends ZoomedDrawScope {
     readonly spaceshipLegs = parseSvgPathData("\nM-7   -6.5\nl-3.5  0\nl-1   -2\nl 0    4\nl 1   -2\nZ\nM-7    6.5\nl-3.5  0\nl-1   -2\nl 0    4\nl 1   -2\nZ\n")
     readonly thrustPath = createPolygon(-3, 3, -5, 0);
@@ -329,6 +334,86 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         return blobs;
     })();
 
+    /** Strongest nebula tint at a world point (P08 nebula profile driver):
+     *  returns 0..1 amount + rgb tint (0..1). Pure — used by PostFX. */
+    nebulaAt(x: number, y: number): { amount: number; r: number; g: number; b: number } {
+        let best = 0;
+        let br = 0, bg = 0, bb = 0;
+        for (const blob of this.nebulaBlobs) {
+            const d = Math.hypot(x - blob.x, y - blob.y);
+            const t = d / blob.r;
+            if (t >= 1.3) continue;
+            const a = ((1.3 - t) / 1.3) * blob.alpha * 2.6;
+            if (a > best) {
+                best = a;
+                const n = parseInt(blob.color.slice(1), 16);
+                br = ((n >> 16) & 255) / 255;
+                bg = ((n >> 8) & 255) / 255;
+                bb = (n & 255) / 255;
+            }
+        }
+        return { amount: Math.min(1, best), r: br, g: bg, b: bb };
+    }
+
+    /** Deterministic comets (P07-T03): two elliptical orbits around the
+     *  star, coma + anti-sun tail. Fictional gameplay content, drawn from
+     *  the clock only (no sim state) — bounded, culled off-screen. */
+    private readonly comets = [
+        { ax: 95000, ay: 62000, period: 260, phase: 0.7, len: 14000 },
+        { ax: 142000, ay: 88000, period: 390, phase: 2.4, len: 20000 },
+    ];
+    drawComets(sx: number, sy: number) {
+        const context = this.context;
+        const helper = this.helper;
+        if (!helper.width) return;
+        const t = performance.now() / 1000;
+        for (const c of this.comets) {
+            const ang = c.phase + (t / c.period) * PI * 2;
+            const cx = sx + Math.cos(ang) * c.ax;
+            const cy = sy + Math.sin(ang) * c.ay;
+            if (cx + c.len * 2 < helper.x || cx - c.len * 2 > helper.x + helper.width
+                || cy + c.len * 2 < helper.y || cy - c.len * 2 > helper.y + helper.height) continue;
+            // velocity direction (tangent) + anti-sun tail blend
+            const vx = -Math.sin(ang) * c.ax;
+            const vy = Math.cos(ang) * c.ay;
+            const vm = Math.hypot(vx, vy) || 1;
+            const tx = -cx + sx, ty = -cy + sy; // toward star
+            const tm = Math.hypot(tx, ty) || 1;
+            // tail = average of trailing-orbit and anti-sun (curved look)
+            const dx = (-vx / vm * 0.55 + tx / tm * 0.45);
+            const dy = (-vy / vm * 0.55 + ty / tm * 0.45);
+            const dm = Math.hypot(dx, dy) || 1;
+            const ux = dx / dm, uy = dy / dm;
+            const tailLen = c.len * (0.7 + 0.3 * Math.sin(t * 0.5 + c.phase));
+            context.save();
+            context.globalCompositeOperation = "lighter";
+            // tail (gradient triangle)
+            const ex = cx + ux * tailLen, ey = cy + uy * tailLen;
+            const tg = context.createLinearGradient(cx, cy, ex, ey);
+            tg.addColorStop(0, "rgba(200,230,255,0.5)");
+            tg.addColorStop(1, "rgba(200,230,255,0)");
+            context.fillStyle = tg;
+            const w = 900;
+            const px = -uy, py = ux;
+            context.beginPath();
+            context.moveTo(cx, cy);
+            context.lineTo(ex + px * w, ey + py * w);
+            context.lineTo(ex - px * w, ey - py * w);
+            context.closePath();
+            context.fill();
+            // coma (soft ball)
+            const cg = context.createRadialGradient(cx, cy, 0, cx, cy, 650);
+            cg.addColorStop(0, "rgba(255,255,255,0.9)");
+            cg.addColorStop(0.4, "rgba(190,220,255,0.35)");
+            cg.addColorStop(1, "rgba(190,220,255,0)");
+            context.fillStyle = cg;
+            context.beginPath();
+            context.arc(cx, cy, 650, 0, PI * 2);
+            context.fill();
+            context.restore();
+        }
+    }
+
     /**
      * Scanner reveal wave (user 2026-11-09 v2): PRETTIER sweep — bright
      * thin leading edge + soft trailing halo + a slower inner echo ring —
@@ -493,7 +578,8 @@ export class ZoomedDrawScope15 extends ZoomedDrawScope {
         // the signature encounter is rendered as a fixed distant landmark at
         // the far side of the playable space so players can fly up to it and
         // inspect the event-horizon silhouette + accretion disc + lensing cue.
-        this.drawBlackHoleMark(180000, -140000, 2600);
+        this.drawComets(universe.star.pos.x, universe.star.pos.y);
+        this.drawBlackHoleMark(BLACK_HOLE.x, BLACK_HOLE.y, BLACK_HOLE.r);
         this.litStar.x = universe.star.pos.x;
         this.litStar.y = universe.star.pos.y;
         universe.constraints.forEach(it => {
@@ -1246,12 +1332,32 @@ export class VisibleUniverse15 extends VisibleUniverse {
 
         this.ship = new Spacecraft15();
 
-        Vec2_makeWithAngleMag(
-            this.ship.pos,
-            this.rngForInit.float() * PI * 2,
-            this.rngForInit.minmax(UniverseConst.PLANET_ORBIT_RANGE_MIN, UniverseConst.PLANET_ORBIT_RANGE_MAX)
-        ).addSelf(this.star.pos);
-        this.ship.angle = this.rngForInit.float() * PI * 2;
+        // R-006 fix: spawn BESIDE the innermost planet (not in random void)
+        // so the first screen shows a planet + star glow. The ship carries
+        // the planet's orbital velocity so it drifts with it instead of
+        // slingshot-ing away.
+        const home = this.planets[0];
+        if (home) {
+            const oa = Math.atan2(home.pos.y - this.star.pos.y, home.pos.x - this.star.pos.x);
+            // Spawn IN the planet's orbit (same radius), ahead of it along
+            // the track: star gravity then treats it like the planet itself
+            // (stable drift), whereas a radially-outside spawn has the
+            // wrong circular speed and falls into the star/planet.
+            const orbitR = home.pos.distance(this.star.pos);
+            const lead = 6000; // metres ahead of the planet on the track
+            const ang = oa + lead / orbitR;
+            Vec2_makeWithAngleMag(this.ship.pos, ang, orbitR).addSelf(this.star.pos);
+            this.ship.angle = ang + PI / 2; // nose along the track (toward planet)
+            Vec2_makeWithAngleMag(this.ship.velocity, ang + PI / 2, home.speed);
+            Vec2_copy(this.ship.opos, this.ship.pos);
+        } else {
+            Vec2_makeWithAngleMag(
+                this.ship.pos,
+                this.rngForInit.float() * PI * 2,
+                this.rngForInit.minmax(UniverseConst.PLANET_ORBIT_RANGE_MIN, UniverseConst.PLANET_ORBIT_RANGE_MAX)
+            ).addSelf(this.star.pos);
+            this.ship.angle = this.rngForInit.float() * PI * 2;
+        }
         this.addEntity(this.ship);
 
         this.ringfence.add(this.ship);

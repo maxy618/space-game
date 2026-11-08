@@ -37,7 +37,7 @@ import { Namer15 } from "../core/Namer15";
 import { clamp, lexp } from "../core/Maths";
 import { lerp } from "../core/MathHelpers";
 import { Vec2, Vec2_copy, Vec2_makeWithAngleMag } from "../core/Vec2";
-import { VisibleUniverse15, ZoomedDrawScope15 } from "../render/VisibleUniverse15";
+import { VisibleUniverse15, ZoomedDrawScope15, BLACK_HOLE } from "../render/VisibleUniverse15";
 import { Asteroid, Landing, Planet, Spacecraft, Spark, SparkStyle, Star, StarClass, StarClassNames, StarClasses, Track, UniverseConst } from "../universe/Universe";
 import { Landing15, Spacecraft15 } from "../universe/Universe15";
 import { FlightStick } from "../input/FlightStick";
@@ -294,6 +294,9 @@ function Spaaaace(
     let prevLanding = false;
     let prevDiscovery: number | null = null;
     let nearStarGlare = 1; // 1 = normal sky, 0 = fully washed out (close to star)
+    // P08 impact profile state (landing bump / discovery pop → decays to 0).
+    let impactFlash = 0;
+    let impactShake = 0;
 
     // Deterministic multi-layer starfield (P05-T03, deepened 2026-11-08,
     // enriched 2026-11-09): three parallax planes — far (0.08 px/m, fine),
@@ -661,6 +664,55 @@ function Spaaaace(
             }
             w2.globalAlpha = 1;
             w2.restore();
+
+            // R-006 horizon cues (screen space, device px): the view is
+            // ~450 m wide at 1 px/m, so the star and planets are usually
+            // OFF-SCREEN. A distant glare toward the star + an edge
+            // diamond toward the nearest planet keep the first screen
+            // navigable without teleporting the player.
+            {
+                const m2s = (wx: number, wy: number): [number, number] => [
+                    (wx - chaseX) * cameraZoom * dpr + canvasWidth / 2,
+                    (wy - chaseY) * cameraZoom * dpr + canvasHeight / 2,
+                ];
+                const [starSx, starSy] = m2s(u.star.pos.x, u.star.pos.y);
+                const starOn = starSx > -200 && starSx < canvasWidth + 200 && starSy > -200 && starSy < canvasHeight + 200;
+                if (!starOn) {
+                    const gx = clamp(starSx, 40, canvasWidth - 40);
+                    const gy = clamp(starSy, 40, canvasHeight - 40);
+                    // soften: nearer to the edge → stronger
+                    const edgeProx = Math.max(Math.abs(starSx - gx), Math.abs(starSy - gy));
+                    const a = clamp(0.55 - edgeProx / (canvasWidth * 2), 0.12, 0.4);
+                    w2.save();
+                    w2.setTransform(1, 0, 0, 1, 0, 0);
+                    w2.globalCompositeOperation = "lighter";
+                    const rg = 90 * dpr;
+                    const grad = w2.createRadialGradient(gx, gy, 0, gx, gy, rg);
+                    grad.addColorStop(0, "rgba(255,240,200," + a + ")");
+                    grad.addColorStop(0.4, "rgba(255,210,130," + (a * 0.4) + ")");
+                    grad.addColorStop(1, "rgba(255,210,130,0)");
+                    w2.fillStyle = grad;
+                    w2.beginPath(); w2.arc(gx, gy, rg, 0, PI * 2); w2.fill();
+                    w2.restore();
+                }
+                const nearP = u.closestPlanetForZoom();
+                const [px, py] = m2s(nearP.pos.x, nearP.pos.y);
+                const pOn = px > -60 && px < canvasWidth + 60 && py > -60 && py < canvasHeight + 60;
+                if (!pOn) {
+                    const ex = clamp(px, 26 * dpr, canvasWidth - 26 * dpr);
+                    const ey = clamp(py, 26 * dpr, canvasHeight - 26 * dpr);
+                    w2.save();
+                    w2.setTransform(1, 0, 0, 1, 0, 0);
+                    w2.translate(ex, ey);
+                    w2.rotate(Math.atan2(py - ey, px - ex) + PI / 2);
+                    w2.fillStyle = "rgba(167,167,202,0.85)";
+                    const s = 7 * dpr;
+                    w2.beginPath();
+                    w2.moveTo(0, -s); w2.lineTo(s, 0); w2.lineTo(0, s); w2.lineTo(-s, 0);
+                    w2.closePath(); w2.fill();
+                    w2.restore();
+                }
+            }
         }
 
         // High-DPI fix (user report: 2.5K phone showed the world ~3x too far).
@@ -740,11 +792,14 @@ function Spaaaace(
                     if (landingNow && !prevLanding) {
                         kickX += kickMetersForScreenPx(2.5, cameraZoom) * (Math.random() < 0.5 ? -1 : 1);
                         kickY += kickMetersForScreenPx(2.5, cameraZoom) * (Math.random() < 0.5 ? -1 : 1);
+                        impactFlash = 0.7; // P08 impact profile trigger
+                        impactShake = 0.0015;
                     }
                     prevLanding = landingNow;
                     const discId = u.latestDiscovery ? u.latestDiscovery.id : null;
                     if (discId !== null && discId !== prevDiscovery) {
                         kickY += kickMetersForScreenPx(2, cameraZoom);
+                        impactFlash = Math.max(impactFlash, 0.3);
                     }
                     prevDiscovery = discId;
                     if (u.dt > 0) {
@@ -815,16 +870,28 @@ function Spaaaace(
                 (wx - helper.x) / helper.width,
                 (wy - helper.y) / helper.height,
             ];
-            const [bhu, bhv] = toUV(180000, -140000);
+            const [bhu, bhv] = toUV(BLACK_HOLE.x, BLACK_HOLE.y);
             const [starU, starV] = toUV(u.star.pos.x, u.star.pos.y);
-            const bhDist = Math.hypot(u.ship.pos.x - 180000, u.ship.pos.y + 140000);
+            const bhDist = Math.hypot(u.ship.pos.x - BLACK_HOLE.x, u.ship.pos.y - BLACK_HOLE.y);
+            // impact decay (exact zero termination, P08)
+            if (u.dt > 0) {
+                impactFlash = impactFlash * Math.exp(-6 * u.dt);
+                if (impactFlash < 0.005) impactFlash = 0;
+                impactShake = impactShake * Math.exp(-6 * u.dt);
+                if (impactShake < 0.00005) impactShake = 0;
+            }
+            const neb = zoomedDrawScope.nebulaAt(u.ship.pos.x, u.ship.pos.y);
             const params: PostFXParams = {
                 ...NEUTRAL_PARAMS,
                 warp: fisheyeSmooth / 0.6,
-                blackHole: bhDist < 2600 * 8 ? clamp(1 - bhDist / (2600 * 8), 0, 1) : 0,
+                blackHole: bhDist < BLACK_HOLE.r * 8 ? clamp(1 - bhDist / (BLACK_HOLE.r * 8), 0, 1) : 0,
                 starHeat: (u as { starProximity?: number }).starProximity ?? 0,
+                nebula: neb.amount,
+                nebR: neb.r, nebG: neb.g, nebB: neb.b,
+                impact: impactFlash,
+                shakeX: impactShake,
                 bhU: bhu, bhV: bhv,
-                bhRadius: (2600 / helper.width) * 0.5,
+                bhRadius: (BLACK_HOLE.r / helper.width) * 0.5,
                 starU, starV,
                 time: performance.now() / 1000,
             };
@@ -1462,6 +1529,21 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 pendingLabels.push({ x: px + 16, y: py + 3, text: "?", prio: 2, color: "rgba(122,122,158,0.7)" });
             }
         }
+        // Black hole landmark (R-006): always drawn (known navigator
+        // landmark), warm disc + photon ring, routable via tap.
+        {
+            const [bx, by] = worldToScreen(BLACK_HOLE.x, BLACK_HOLE.y);
+            ctx2.fillStyle = "#0A0600";
+            ctx2.beginPath();
+            ctx2.arc(bx, by, Math.max(7, BLACK_HOLE.r * scale), 0, PI * 2);
+            ctx2.fill();
+            ctx2.strokeStyle = "rgba(255,190,110,0.85)";
+            ctx2.lineWidth = 1.6;
+            ctx2.beginPath();
+            ctx2.arc(bx, by, Math.max(10, BLACK_HOLE.r * scale * 1.5), 0, PI * 2);
+            ctx2.stroke();
+            pendingLabels.push({ x: bx + 16, y: by + 3, text: "BLACK HOLE", prio: 0, color: "rgba(255,190,110,0.9)" });
+        }
         // label placement (user 2026-11-09): ONLY when zoomed RIGHT on the
         // object (deep zoom). Labels sit OVER the object with a 100%
         // opaque plate, LARGE text (readable on phones), never ghosted.
@@ -2044,6 +2126,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
         const r = universe.asteroids.find(cf => cf.id === id);
         if (r) return { x: r.pos.x, y: r.pos.y, vx: r.velocity.x, vy: r.velocity.y, kind: "asteroid" };
         if (universe.star.id === id) return { x: universe.star.pos.x, y: universe.star.pos.y, vx: 0, vy: 0, kind: "star" };
+        if (id === BLACK_HOLE.id) return { x: BLACK_HOLE.x, y: BLACK_HOLE.y, vx: 0, vy: 0, kind: "blackHole" };
         return null;
     }
 
@@ -2081,6 +2164,13 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
             const d = Math.hypot(px - mx, py - my);
             if (d < 24 && (best === null || d < best.d)) best = { id: a.id, d };
         }
+        // black-hole landmark (R-006): tappable route target
+        {
+            const px = (BLACK_HOLE.x - star.pos.x - radarPanX) * scale;
+            const py = (BLACK_HOLE.y - star.pos.y - radarPanY) * scale;
+            const d = Math.hypot(px - mx, py - my);
+            if (d < 28 && (best === null || d < best.d)) best = { id: BLACK_HOLE.id, d };
+        }
         return best === null ? null : best.id;
     }
     function radarClick(mx: number, my: number): unknown {
@@ -2101,6 +2191,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 if (c) { addRouteNode(c.pos.x, c.pos.y, c.id); return { added: true, id: hitId }; }
                 const a = universe.asteroids.find(cf => cf.id === hitId);
                 if (a) { addRouteNode(a.pos.x, a.pos.y, a.id); return { added: true, id: hitId }; }
+                if (hitId === BLACK_HOLE.id) { addRouteNode(BLACK_HOLE.x, BLACK_HOLE.y, BLACK_HOLE.id); return { added: true, id: hitId }; }
             }
             addRouteNode(worldX, worldY, null);
             return { added: true, id: null };
@@ -2140,6 +2231,15 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                             ["FAUNA", p.fauna || "NONE"],
                         ],
                     } : { name: "UNKNOWN BODY", type: "UNSCANNED", rows: [["DATA", "SCAN THE AREA FIRST"]] };
+                } else if (pid === BLACK_HOLE.id) {
+                    info = {
+                        name: "BLACK HOLE", type: "COMPACT OBJECT",
+                        rows: [
+                            ["SHADOW RADIUS", (BLACK_HOLE.r / 1000).toFixed(1) + " km"],
+                            ["DANGER", "EXTREME"],
+                            ["NOTE", "SCREEN-SPACE LENSING APPROX"],
+                        ],
+                    };
                 }
             }
         }
@@ -2603,6 +2703,7 @@ export function MainActivity15(topText: HTMLElement, bottomText: HTMLElement,
                 radius: p.radius,
             })),
             star: { x: universe.star.pos.x, y: universe.star.pos.y, radius: universe.star.radius },
+            bh: { x: BLACK_HOLE.x, y: BLACK_HOLE.y, r: BLACK_HOLE.r },
             impact: universe.impactThreat ? { tti: universe.impactThreat.tti, level: universe.impactThreat.level } : null,
             liveSparks: universe.countLiveSparksPublic(),
             scan: { cooldown: universe.scan.cooldown, waveAge: universe.scan.waveAge },
